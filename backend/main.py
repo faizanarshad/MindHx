@@ -8,6 +8,7 @@ import os
 import secrets
 import tempfile
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -19,9 +20,20 @@ from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from auth import create_access_token, get_current_user, get_optional_current_user, hash_password, verify_password
+from auth import (
+    PASSWORD_RESET_EXPIRE_MINUTES,
+    as_aware_utc,
+    create_access_token,
+    generate_reset_token,
+    get_current_user,
+    get_optional_current_user,
+    hash_password,
+    hash_reset_token,
+    verify_password,
+)
 from database import get_db, init_db
-from models import CheckIn, HelpfulPractice, MoodCheckIn, User
+from mailer import send_email
+from models import CheckIn, HelpfulPractice, MoodCheckIn, PasswordResetToken, User
 
 
 @asynccontextmanager
@@ -30,10 +42,12 @@ async def lifespan(_app: FastAPI):
     yield
 
 
+WEB_ORIGIN = os.getenv("WEB_ORIGIN", "http://localhost:3000")
+
 app = FastAPI(title="MindHx API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("WEB_ORIGIN", "http://localhost:3000")],
+    allow_origins=[WEB_ORIGIN],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -210,6 +224,15 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=72)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=256)
+    new_password: str = Field(min_length=8, max_length=72)
 
 
 class CheckInCreateRequest(BaseModel):
@@ -638,6 +661,65 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     return {"access_token": create_access_token(user.id), "token_type": "bearer"}
+
+
+@app.post("/auth/forgot-password")
+def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)) -> dict:
+    """Always returns the same generic message regardless of whether the
+    email is registered, so this endpoint can't be used to enumerate which
+    emails have MindHx accounts."""
+    generic_response = {"message": "If an account exists for that email, we've sent a link to reset the password."}
+    user = db.query(User).filter(User.email == payload.email.lower()).first()
+    if not user:
+        return generic_response
+
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id, PasswordResetToken.used_at.is_(None)
+    ).delete()
+
+    raw_token = generate_reset_token()
+    db.add(PasswordResetToken(
+        user_id=user.id,
+        token_hash=hash_reset_token(raw_token),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=PASSWORD_RESET_EXPIRE_MINUTES),
+    ))
+    db.commit()
+
+    reset_link = f"{WEB_ORIGIN}/reset-password?token={raw_token}"
+    send_email(
+        to=user.email,
+        subject="Reset your MindHx password",
+        html_body=(
+            f"<p>Someone requested a password reset for your MindHx account.</p>"
+            f"<p><a href=\"{reset_link}\">Reset your password</a></p>"
+            f"<p>This link expires in {PASSWORD_RESET_EXPIRE_MINUTES} minutes. "
+            f"If you didn't request this, you can safely ignore this email.</p>"
+        ),
+        text_body=(
+            f"Reset your MindHx password: {reset_link}\n\n"
+            f"This link expires in {PASSWORD_RESET_EXPIRE_MINUTES} minutes. "
+            f"If you didn't request this, you can safely ignore this email."
+        ),
+    )
+    return generic_response
+
+
+@app.post("/auth/reset-password")
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)) -> dict:
+    token_hash = hash_reset_token(payload.token)
+    reset_token = db.query(PasswordResetToken).filter(PasswordResetToken.token_hash == token_hash).first()
+    invalid = HTTPException(status_code=400, detail="This reset link is invalid or has expired. Request a new one.")
+    if not reset_token or reset_token.used_at is not None or as_aware_utc(reset_token.expires_at) < datetime.now(timezone.utc):
+        raise invalid
+
+    user = db.get(User, reset_token.user_id)
+    if not user:
+        raise invalid
+
+    user.hashed_password = hash_password(payload.new_password)
+    reset_token.used_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"message": "Your password has been updated. Sign in with your new password."}
 
 
 @app.get("/auth/me")

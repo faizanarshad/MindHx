@@ -4,6 +4,7 @@ import httpx
 import numpy as np
 from fastapi.testclient import TestClient
 
+import main
 from database import init_db
 from main import RAG_DOCUMENTS, _prosodic_features, _prosodic_risk_signal, app, compose_chat_reply, is_urdu_script, summarize_trajectory
 from models import CheckIn
@@ -33,6 +34,48 @@ def test_register_login_and_read_me() -> None:
 
     unauthenticated_response = client.get("/auth/me")
     assert unauthenticated_response.status_code == 401
+
+
+def test_forgot_password_does_not_reveal_whether_an_email_is_registered(monkeypatch) -> None:
+    sent_emails = []
+    monkeypatch.setattr(main, "send_email", lambda **kwargs: sent_emails.append(kwargs))
+
+    client.post("/auth/register", json={"email": "reset-user@example.com", "password": "correct-horse-battery"})
+
+    known_response = client.post("/auth/forgot-password", json={"email": "reset-user@example.com"})
+    unknown_response = client.post("/auth/forgot-password", json={"email": "nobody-here@example.com"})
+
+    assert known_response.status_code == 200
+    assert unknown_response.status_code == 200
+    assert known_response.json() == unknown_response.json()
+    assert len(sent_emails) == 1
+    assert sent_emails[0]["to"] == "reset-user@example.com"
+
+
+def test_reset_password_updates_password_and_single_use_token(monkeypatch) -> None:
+    sent_emails = []
+    monkeypatch.setattr(main, "send_email", lambda **kwargs: sent_emails.append(kwargs))
+
+    client.post("/auth/register", json={"email": "reset-flow@example.com", "password": "original-password"})
+    client.post("/auth/forgot-password", json={"email": "reset-flow@example.com"})
+
+    reset_link = sent_emails[-1]["text_body"]
+    token = reset_link.split("token=")[1].split()[0]
+
+    invalid_token_response = client.post("/auth/reset-password", json={"token": "not-a-real-token-xxxxxxxxxx", "new_password": "brand-new-password"})
+    assert invalid_token_response.status_code == 400
+
+    reset_response = client.post("/auth/reset-password", json={"token": token, "new_password": "brand-new-password"})
+    assert reset_response.status_code == 200
+
+    old_password_login = client.post("/auth/login", json={"email": "reset-flow@example.com", "password": "original-password"})
+    assert old_password_login.status_code == 401
+
+    new_password_login = client.post("/auth/login", json={"email": "reset-flow@example.com", "password": "brand-new-password"})
+    assert new_password_login.status_code == 200
+
+    reused_token_response = client.post("/auth/reset-password", json={"token": token, "new_password": "another-password"})
+    assert reused_token_response.status_code == 400
 
 
 def test_checkins_require_auth_and_round_trip() -> None:

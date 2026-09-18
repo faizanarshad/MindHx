@@ -47,11 +47,11 @@ export default function RegisterClient() {
       <NatureBanner {...naturePhotos.forestPath} priority />
       <form className="auth-form" onSubmit={handleSubmit}>
         <label>
-          <span>Email</span>
-          <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+          <span>Email <em className="required-mark">*required</em></span>
+          <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" />
         </label>
         <label>
-          <span>Password (min. 8 characters)</span>
+          <span>Password (min. 8 characters) <em className="required-mark">*required</em></span>
           <input type="password" required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" />
         </label>
         <label>

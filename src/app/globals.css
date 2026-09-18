@@ -480,6 +480,12 @@ textarea::placeholder { color:#9aa6b4; }
 .auth-error { text-align:left; }
 .auth-switch { text-align:center; color:var(--muted); font-size:12px; }
 .auth-switch a { color:var(--blue); }
+.required-mark { font-style:normal; color:var(--red); font-size:10px; letter-spacing:.3px; margin-left:5px; text-transform:uppercase; }
+.auth-label-row { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+.auth-forgot-link { color:var(--blue); font-size:12px; white-space:nowrap; }
+.auth-confirmation { text-align:center; gap:20px; }
+.auth-success { color:#1f6e52; background:var(--teal-soft); border:1px solid rgba(47,143,110,.25); border-radius:10px; padding:16px 18px; font-size:13px; line-height:1.6; margin:0; }
+.auth-confirmation-link { align-self:center; }
 .dashboard-signout { border:1px solid var(--line-cool); border-radius:6px; background:var(--surface); color:var(--muted); padding:8px 13px; font-size:11px; }
 .dashboard-signout:hover { border-color:var(--blue); color:var(--blue); }
 .dashboard-error,.dashboard-loading { position:relative; z-index:1; max-width:1120px; margin:0 auto; color:var(--muted); font-size:13px; }

@@ -7,6 +7,7 @@ stays "logged in" on a secret nobody chose), unlike silently shipping a
 fixed default secret that would let anyone forge tokens.
 """
 
+import hashlib
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -31,6 +32,7 @@ if not JWT_SECRET_KEY:
 
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+PASSWORD_RESET_EXPIRE_MINUTES = int(os.getenv("PASSWORD_RESET_EXPIRE_MINUTES", "30"))
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -71,6 +73,27 @@ def get_current_user(
     if not user:
         raise unauthorized
     return user
+
+
+def generate_reset_token() -> str:
+    """The raw, high-entropy token put in the emailed reset link. Only its
+    hash (see hash_reset_token) is ever stored, so a leaked database can't
+    be used to forge password resets."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_reset_token(token: str) -> str:
+    # A fast hash is fine here (unlike bcrypt for passwords): the token
+    # itself already has 256 bits of entropy, so it isn't brute-forceable
+    # the way a human-chosen password is.
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def as_aware_utc(value: datetime) -> datetime:
+    """SQLite (local dev) hands back naive datetimes for DateTime(timezone=True)
+    columns; Postgres (production) hands back timezone-aware ones. Normalize
+    to aware-UTC before comparing so expiry checks work on both."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 def get_optional_current_user(

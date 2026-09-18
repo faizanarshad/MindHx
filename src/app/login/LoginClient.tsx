@@ -42,11 +42,14 @@ export default function LoginClient() {
       <NatureBanner {...naturePhotos.forestPath} priority />
       <form className="auth-form" onSubmit={handleSubmit}>
         <label>
-          <span>Email</span>
-          <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+          <span>Email <em className="required-mark">*required</em></span>
+          <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" />
         </label>
         <label>
-          <span>Password</span>
+          <div className="auth-label-row">
+            <span>Password <em className="required-mark">*required</em></span>
+            <Link href="/forgot-password" className="auth-forgot-link">Forgot password?</Link>
+          </div>
           <input type="password" required value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" />
         </label>
         {error && <p className="assessment-error auth-error">{error}</p>}
