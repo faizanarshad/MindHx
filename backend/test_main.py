@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 import main
 from database import init_db
-from main import RAG_DOCUMENTS, _prosodic_features, _prosodic_risk_signal, app, compose_chat_reply, is_urdu_script, summarize_trajectory
+from main import RAG_DOCUMENTS, _prosodic_features, _prosodic_risk_signal, _voice_emotion_scores, app, compose_chat_reply, is_urdu_script, summarize_trajectory
 from models import CheckIn
 
 init_db()
@@ -120,6 +120,40 @@ def test_text_analysis_flags_crisis_language() -> None:
     assert response.json()["crisis_language"] is True
 
 
+def test_text_analysis_distinguishes_anxiety_stress_and_depression_language() -> None:
+    """These are heuristic lexicon/ratio scores (see _linguistic_indicators), not a trained
+    classifier - the test checks that clearly anxious, stressed, and hopeless/absolutist text
+    each score highest on their own dimension, not that the exact values are "correct"."""
+    anxious = client.post("/analyze-text", json={
+        "text": "I keep worrying about everything, what if something goes wrong, I can't stop thinking about it, so nervous and on edge!",
+        "language": "en",
+    }).json()
+    stressed = client.post("/analyze-text", json={
+        "text": "I am so overwhelmed with deadlines, too much pressure at work, I can't keep up and I am exhausted, no time for anything.",
+        "language": "en",
+    }).json()
+    depressive = client.post("/analyze-text", json={
+        "text": "Nothing ever works out for me. I always fail at everything. I am completely worthless and everyone always leaves.",
+        "language": "en",
+    }).json()
+    calm = client.post("/analyze-text", json={
+        "text": "Today was a pretty normal day. I went for a walk and had a good time with friends.",
+        "language": "en",
+    }).json()
+
+    for result in (anxious, stressed, depressive, calm):
+        for field in ("anxiety_level", "stress_level", "depression_indicator"):
+            assert field in result and 0.0 <= result[field] <= 1.0
+        assert "linguistic_features" in result and result["linguistic_features"]["word_count"] > 0
+
+    assert anxious["anxiety_level"] == max(anxious["anxiety_level"], anxious["stress_level"], anxious["depression_indicator"])
+    assert stressed["stress_level"] == max(stressed["anxiety_level"], stressed["stress_level"], stressed["depression_indicator"])
+    assert depressive["depression_indicator"] == max(depressive["anxiety_level"], depressive["stress_level"], depressive["depression_indicator"])
+    assert calm["anxiety_level"] < anxious["anxiety_level"]
+    assert calm["stress_level"] < stressed["stress_level"]
+    assert calm["depression_indicator"] < depressive["depression_indicator"]
+
+
 def test_phq9_item_nine_short_circuits() -> None:
     response = client.post("/score-phq9", json={"answers": [0, 0, 0, 0, 0, 0, 0, 0, 1]})
     body = response.json()
@@ -175,6 +209,19 @@ def test_prosodic_risk_signal_higher_for_flat_paused_audio() -> None:
 
     assert quiet_features["pause_ratio"] > active_features["pause_ratio"]
     assert _prosodic_risk_signal(quiet_features) > _prosodic_risk_signal(active_features)
+
+    quiet_emotion = _voice_emotion_scores(quiet_features)
+    active_emotion = _voice_emotion_scores(active_features)
+    # Mostly-silent, flat, slow audio should read as fatigued and depression-coded rather
+    # than stressed or angry; continuous, more energetically varied audio should read the
+    # other way around. These are heuristic proxies, not a trained emotion classifier - the
+    # test only checks the ordering the docstring above claims, not absolute values.
+    assert quiet_emotion["fatigue"] > active_emotion["fatigue"]
+    assert quiet_emotion["depression_indicator"] > active_emotion["depression_indicator"]
+    assert active_emotion["stress"] > quiet_emotion["stress"]
+    for scores in (quiet_emotion, active_emotion):
+        assert set(scores) == {"calm", "stress", "anger", "fatigue", "depression_indicator"}
+        assert all(0.0 <= value <= 1.0 for value in scores.values())
 
 
 def test_themes_detect_trauma_and_frustration_from_raw_text() -> None:

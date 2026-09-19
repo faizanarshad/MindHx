@@ -7,6 +7,8 @@ import NatureBanner from "../components/NatureBanner";
 import { naturePhotos } from "../components/naturePhotos";
 import { DoodleLeaf, DoodleSpeechBubble, DoodleSun } from "../components/Doodles";
 import SiteFooter from "../components/SiteFooter";
+import VoiceEmotionBars, { type VoiceEmotion } from "../components/VoiceEmotionBars";
+import TextMoodBars from "../components/TextMoodBars";
 
 type Result = {
   risk_score: number;
@@ -18,8 +20,8 @@ type Result = {
     phq9: { score: number; band: string };
     gad7: { score: number; band: string };
     k10: { score: number; band: string };
-    text: { sentiment: string; signal: number };
-    voice: { available: boolean; signal: number | null; note: string };
+    text: { sentiment: string; signal: number; anxiety_level?: number | null; stress_level?: number | null; depression_indicator?: number | null };
+    voice: { available: boolean; signal: number | null; note: string; emotion?: VoiceEmotion | null };
     attribution?: {
       method: string;
       note: string;
@@ -73,7 +75,7 @@ export default function ResultsClient() {
         <Signal name="K10" score={components?.k10.score ?? 0} max={50} band={components?.k10.band ?? "not available"} color="green" />
         <div className="result-signal-card text-result"><span className="result-signal-icon">Aa</span><div><b>WORDS</b><h3>{components?.text.sentiment ?? "not available"}</h3><p>{components?.text.signal ? `${Math.round(components.text.signal * 100)}% text signal` : "No text signal"}</p></div></div>
         <div className="result-signal-card voice-result"><span className="result-signal-icon">◉</span><div><b>VOICE</b><h3>{components?.voice.available ? `${Math.round((components.voice.signal ?? 0) * 100)}% signal` : "Not available"}</h3><p>{components?.voice.note ?? "No acoustic features returned."}</p></div></div>
-      </div>{components?.attribution && <><div className="attribution-list">{components.attribution.contributions.map((item) => <div className="attribution-row" key={item.name}><span className="attribution-label">{item.label}<small>{item.modality}</small></span><span className="attribution-track"><i className="attribution-fill" style={{ width: `${Math.max(4, item.share_pct)}%` }} /></span><span className="attribution-share">{item.share_pct}%</span></div>)}</div><p className="attribution-note">{components.attribution.note}</p></>}</section>
+      </div>{components?.text.anxiety_level != null && components.text.stress_level != null && components.text.depression_indicator != null && <TextMoodBars scores={{ anxiety_level: components.text.anxiety_level, stress_level: components.text.stress_level, depression_indicator: components.text.depression_indicator }} title="Word-choice breakdown" />}{components?.voice.emotion && <VoiceEmotionBars emotion={components.voice.emotion} title="Voice tone breakdown" />}{components?.attribution && <><div className="attribution-list">{components.attribution.contributions.map((item) => <div className="attribution-row" key={item.name}><span className="attribution-label">{item.label}<small>{item.modality}</small></span><span className="attribution-track"><i className="attribution-fill" style={{ width: `${Math.max(4, item.share_pct)}%` }} /></span><span className="attribution-share">{item.share_pct}%</span></div>)}</div><p className="attribution-note">{components.attribution.note}</p></>}</section>
 
       <section className="result-section support-section"><div className="result-section-heading"><p className="eyebrow">02 / WHAT NEXT</p><h2>{result.support_plan?.title ?? "A gentle next step"}</h2><p>{result.support_plan?.next_action ?? "Choose one small action that supports you today."}</p></div>{result.themes && <div className="result-themes">{result.themes.map((theme) => <span key={theme}>{theme.replaceAll("_", " ")}</span>)}</div>}<div className="result-columns">{result.support_plan?.strategies && result.support_plan.strategies.length > 0 && <SupportList title="Suggested strategies" items={result.support_plan.strategies.map((item) => `${item.name}: ${item.steps}`)} />}{result.support_plan?.meditation && result.support_plan.meditation.length > 0 && <SupportList title="Support practices" items={result.support_plan.meditation.map((item) => `${item.name}: ${item.steps}`)} />}{result.support_plan?.support_groups && <SupportList title="Connection" items={result.support_plan.support_groups.map((item) => `${item.name}: ${item.description}`)} />}</div></section>
 

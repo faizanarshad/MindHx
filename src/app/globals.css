@@ -321,6 +321,21 @@ textarea::placeholder { color:#9aa6b4; }
 .attribution-note { max-width:1120px; margin:14px auto 0; color:var(--muted); font-size:11px; line-height:1.6; }
 @media (max-width:800px) { .attribution-row { grid-template-columns:120px 1fr 46px; } }
 
+.emotion-bars { display:flex; flex-direction:column; gap:8px; margin-top:16px; }
+.emotion-bars-title { font:500 10px 'DM Mono',monospace; letter-spacing:1.4px; text-transform:uppercase; color:var(--muted); margin:0 0 2px; }
+.emotion-row { display:grid; grid-template-columns:128px 1fr 40px; align-items:center; gap:10px; }
+.emotion-label { color:var(--navy); font-size:12px; }
+.emotion-track { height:7px; border-radius:5px; background:var(--line); overflow:hidden; }
+.emotion-fill { display:block; height:100%; border-radius:inherit; transition:width .4s ease; }
+.emotion-fill-teal { background:var(--teal); }
+.emotion-fill-orange { background:var(--orange); }
+.emotion-fill-red { background:var(--red); }
+.emotion-fill-blue { background:var(--blue); }
+.emotion-fill-navy { background:var(--navy); }
+.emotion-share { text-align:right; color:var(--muted); font:11px 'DM Mono',monospace; }
+.emotion-note { max-width:520px; margin:6px 0 0; color:var(--muted); font-size:10.5px; line-height:1.55; }
+@media (max-width:520px) { .emotion-row { grid-template-columns:96px 1fr 36px; } }
+
 /* ---------- Resource pages (shared) ---------- */
 .resource-page { padding:0 6vw 50px; background:radial-gradient(circle at 80% 4%,rgba(47,143,110,.08),transparent 26%),var(--background); color:var(--navy); position:relative; }
 .site-header-sticky { position:sticky; top:0; z-index:5; background:rgba(251,243,230,.92); backdrop-filter:blur(14px); border-bottom:1px solid var(--line); margin:0 -6vw; padding:0 6vw; }

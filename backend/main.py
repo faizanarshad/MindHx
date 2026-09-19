@@ -5,12 +5,13 @@ to save their check-in history across visits."""
 
 import json
 import os
+import re
 import secrets
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import httpx
 import numpy as np
@@ -266,7 +267,7 @@ class RiskAssessmentRequest(BaseModel):
     text_analysis: dict = Field(default_factory=dict)
     phq9_result: dict = Field(default_factory=dict)
     profile: Optional[Profile] = None
-    voice_features: dict[str, float] = Field(default_factory=dict)
+    voice_features: dict[str, Any] = Field(default_factory=dict)
 
 
 def has_crisis_language(text: str) -> bool:
@@ -440,6 +441,102 @@ def classify_themes(phq_result: dict, gad_result: dict, k10_result: dict, text_r
     return themes or ["patience"]
 
 
+# --- Linguistic markers beyond sentiment ---
+# A single positive/negative/neutral label collapses a lot of information a
+# free-text check-in actually carries. These lexicons back a second,
+# independent read of the same text: word-level markers with a real basis in
+# computational-psycholinguistics research on depression/anxiety forums
+# (elevated first-person-singular usage: Rude, Gortner & Pennebaker 2004;
+# absolutist words like "always"/"never"/"completely": Al-Mosaiwi & Johnstone
+# 2018) - not a diagnosis, and not fitted to labeled MindHx data. Bilingual
+# (English + Urdu), same substring-matching style as THEME_KEYWORDS above.
+LINGUISTIC_MARKER_TERMS = {
+    "anxiety": (
+        "anxious", "anxiety", "worried", "worry", "worrying", "panic", "panicking", "nervous",
+        "on edge", "restless", "racing thoughts", "can't stop thinking", "cant stop thinking",
+        "what if", "overthinking", "tense", "uneasy", "dread", "scared", "overwhelmed",
+        "بےچینی", "پریشان", "گھبراہٹ", "خوف", "فکر مند", "بےقراری", "خدشہ",
+    ),
+    "stress": (
+        "stressed", "stress", "pressure", "overloaded", "overwhelmed", "burnt out", "burned out",
+        "too much", "can't cope", "cant cope", "can't keep up", "cant keep up", "deadline",
+        "no time", "swamped", "under pressure",
+        "دباؤ", "بوجھ", "زیادہ کام",
+    ),
+    "fatigue": (
+        "tired", "exhausted", "drained", "no energy", "worn out", "fatigued",
+        "can't get up", "cant get up", "no motivation",
+        "تھکاوٹ", "نڈھال", "سستی", "تھکن",
+    ),
+    "absolutist": (
+        "always", "never", "everyone", "no one", "nobody", "everything", "nothing",
+        "every time", "completely", "totally", "entirely", "constantly", "forever", "impossible",
+        "ہمیشہ", "کبھی نہیں", "ہر کوئی", "کوئی نہیں", "سب کچھ", "کچھ بھی نہیں", "مکمل طور پر",
+    ),
+    "negation": ("not ", "no ", "never", "can't", "cant", "won't", "wont", "nothing", "none", "n't", "نہیں", "نہ "),
+}
+FIRST_PERSON_TERMS_EN = {"i", "i'm", "im", "i've", "ive", "i'll", "ill", "i'd", "id", "me", "my", "mine", "myself"}
+FIRST_PERSON_TERMS_UR = ("میں", "مجھے", "میرا", "میری", "میرے", "خود")
+
+
+def _linguistic_features(text: str) -> dict:
+    """Objective, countable features from free text - word/phrase hits and
+    ratios, not a diagnosis. Returned as-is alongside the derived scores
+    below so the math stays auditable rather than a black box."""
+    words = re.findall(r"[\w']+", text.lower())
+    word_count = len(words)
+    lowered = text.lower()
+
+    def count_hits(category: str) -> int:
+        return sum(lowered.count(term) for term in LINGUISTIC_MARKER_TERMS[category])
+
+    first_person_hits = sum(1 for word in words if word in FIRST_PERSON_TERMS_EN) + sum(lowered.count(term) for term in FIRST_PERSON_TERMS_UR)
+
+    return {
+        "word_count": word_count,
+        "anxiety_hits": count_hits("anxiety"),
+        "stress_hits": count_hits("stress"),
+        "fatigue_hits": count_hits("fatigue"),
+        "absolutist_hits": count_hits("absolutist"),
+        "negation_hits": count_hits("negation"),
+        "first_person_ratio": round(first_person_hits / word_count, 3) if word_count else 0.0,
+        "exclamation_count": text.count("!"),
+        "question_count": text.count("?"),
+    }
+
+
+def _linguistic_indicators(features: dict) -> dict:
+    """Maps the raw features above onto three 0-1 scores. A coarse lexicon-
+    and-ratio heuristic, not a validated psychometric instrument - treat as
+    a conversation starter alongside PHQ-9/GAD-7/K10, not a replacement for
+    them."""
+
+    def clamp(value: float) -> float:
+        return min(1.0, max(0.0, value))
+
+    word_count = max(features["word_count"], 10)  # floor so a 2-word text can't swing a ratio to 100%
+    density = lambda hits: (hits / word_count) * 50  # hits per 50 words
+
+    anxiety_density = clamp(density(features["anxiety_hits"]) / 4.0)
+    stress_density = clamp(density(features["stress_hits"]) / 4.0)
+    fatigue_density = clamp(density(features["fatigue_hits"]) / 4.0)
+    absolutist_density = clamp(density(features["absolutist_hits"]) / 4.0)
+    first_person_component = clamp((features["first_person_ratio"] - 0.04) / 0.10)
+    negation_component = clamp((density(features["negation_hits"]) - 1.0) / 4.0)
+    exclaim_component = clamp(features["exclamation_count"] / 3.0)
+    question_component = clamp(features["question_count"] / 3.0)
+
+    anxiety_level = clamp(0.55 * anxiety_density + 0.20 * question_component + 0.15 * first_person_component + 0.10 * exclaim_component)
+    stress_level = clamp(0.50 * stress_density + 0.25 * fatigue_density + 0.15 * exclaim_component + 0.10 * negation_component)
+    depression_indicator = clamp(0.35 * absolutist_density + 0.30 * first_person_component + 0.20 * fatigue_density + 0.15 * negation_component)
+
+    return {
+        "anxiety_level": round(anxiety_level, 2),
+        "stress_level": round(stress_level, 2),
+        "depression_indicator": round(depression_indicator, 2),
+    }
+
+
 MODALITY_LABELS = {
     "phq9": ("PHQ-9", "clinical"),
     "gad7": ("GAD-7", "clinical"),
@@ -449,7 +546,7 @@ MODALITY_LABELS = {
 }
 
 
-def evaluate_components(phq_result: dict, gad_result: dict, k10_result: dict, text_result: dict, voice_features: dict[str, float]) -> dict:
+def evaluate_components(phq_result: dict, gad_result: dict, k10_result: dict, text_result: dict, voice_features: dict) -> dict:
     phq_signal = round(int(phq_result.get("total_score", 0)) / 27, 2)
     gad_signal = round(int(gad_result.get("total_score", 0)) / 21, 2)
     k10_signal = round(max(0, int(k10_result.get("total_score", 10)) - 10) / 40, 2)
@@ -483,8 +580,20 @@ def evaluate_components(phq_result: dict, gad_result: dict, k10_result: dict, te
         "phq9": {"signal": phq_signal, "score": phq_result.get("total_score", 0), "band": phq_result.get("severity_band")},
         "gad7": {"signal": gad_signal, "score": gad_result.get("total_score", 0), "band": gad_result.get("severity_band")},
         "k10": {"signal": k10_signal, "score": k10_result.get("total_score", 0), "band": k10_result.get("severity_band")},
-        "text": {"signal": text_signal, "sentiment": text_result.get("sentiment", "neutral"), "crisis_language": bool(text_result.get("crisis_language"))},
-        "voice": {"signal": voice_signal, "available": voice_signal is not None, "note": "Acoustic voice risk features are not available for this check-in." if voice_signal is None else "Heuristic acoustic features included (pause ratio, loudness variability, speaking rate) - not a validated clinical biomarker."},
+        "text": {
+            "signal": text_signal,
+            "sentiment": text_result.get("sentiment", "neutral"),
+            "crisis_language": bool(text_result.get("crisis_language")),
+            "anxiety_level": text_result.get("anxiety_level"),
+            "stress_level": text_result.get("stress_level"),
+            "depression_indicator": text_result.get("depression_indicator"),
+        },
+        "voice": {
+            "signal": voice_signal,
+            "available": voice_signal is not None,
+            "emotion": voice_features.get("emotion") if voice_signal is not None else None,
+            "note": "Acoustic voice risk features are not available for this check-in." if voice_signal is None else "Heuristic acoustic features included (pause ratio, loudness variability, speaking rate) - not a validated clinical biomarker.",
+        },
         "combined_signal": combined,
         "attribution": {
             "method": "additive_signal_attribution",
@@ -552,7 +661,14 @@ def support_plan(phq_result: dict, gad_result: dict, k10_result: dict, crisis: b
     }
 
 
-TRIAGE_CLASSIFIER_SYSTEM_PROMPT = "Classify mental-health check-in text for triage support, not diagnosis. Return only JSON with sentiment (negative, neutral, or positive), keyword_flags (array of strings), and crisis_language (boolean). Treat explicit self-harm or suicide intent as crisis_language true."
+TRIAGE_CLASSIFIER_SYSTEM_PROMPT = (
+    "Classify mental-health check-in text for triage support, not diagnosis. Return only JSON with: "
+    "sentiment (negative, neutral, or positive), keyword_flags (array of strings), crisis_language (boolean), "
+    "anxiety_level (0 to 1, how much the text reads as anxious, worried, or on edge), "
+    "stress_level (0 to 1, how much the text reads as pressured, overwhelmed, or burnt out), "
+    "and depression_indicator (0 to 1, how much the text reads as hopeless, low-energy, or withdrawn). "
+    "Treat explicit self-harm or suicide intent as crisis_language true."
+)
 
 
 def _parse_triage_classification(content: str) -> Optional[dict]:
@@ -562,6 +678,13 @@ def _parse_triage_classification(content: str) -> Optional[dict]:
         return None
     if result.get("sentiment") not in {"negative", "neutral", "positive"}:
         return None
+    # anxiety_level/stress_level/depression_indicator are an optional enhancement over the
+    # local heuristic - keep them only if the model actually returned a valid 0..1 number,
+    # otherwise drop the key so the caller's heuristic value is used instead.
+    for field in ("anxiety_level", "stress_level", "depression_indicator"):
+        value = result.get(field)
+        if not (isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1):
+            result.pop(field, None)
     return result
 
 
@@ -844,6 +967,49 @@ def _prosodic_risk_signal(features: dict) -> float:
     return round(min(1.0, max(0.0, signal)), 2)
 
 
+def _voice_emotion_scores(features: dict) -> dict:
+    """Coarse rule-based reading of the same three prosodic features onto five
+    illustrative labels (calm, stress, anger, fatigue, depression_indicator).
+
+    This is NOT emotion recognition from a trained model, and it has no pitch
+    or spectral information to work with - only loudness variability, pause
+    ratio, and speaking rate. Treat these bars as a rough, transparent proxy
+    of vocal energy and pacing, not a clinical or forensic-grade classifier
+    of mood or affect. depression_indicator reuses _prosodic_risk_signal's
+    psychomotor-slowing heuristic (pausing + flat loudness + slow speech)."""
+
+    def clamp(value: float) -> float:
+        return min(1.0, max(0.0, value))
+
+    pause_ratio = features["pause_ratio"]
+    variability = features["energy_variability"]
+    rate = features["speaking_rate"]
+
+    variability_high = clamp((variability - 0.5) / 0.5)
+    variability_low = clamp((0.5 - variability) / 0.5)
+    rate_fast = clamp((rate - 2.0) / 2.0)
+    rate_slow = clamp((2.0 - rate) / 2.0)
+    pause_low = clamp((0.3 - pause_ratio) / 0.3)
+    pause_high = clamp((pause_ratio - 0.3) / 0.4)
+
+    # Stress and anger both read as "activated" delivery (louder swings, faster
+    # pace, fewer pauses); anger weights the loudness bursts more heavily,
+    # stress is a more even blend - a coarse distinction, not a validated one.
+    stress = clamp(0.45 * variability_high + 0.35 * rate_fast + 0.20 * pause_low)
+    anger = clamp(0.65 * variability_high + 0.35 * rate_fast)
+    fatigue = clamp(0.45 * variability_low + 0.35 * rate_slow + 0.20 * pause_high)
+    depression_indicator = _prosodic_risk_signal(features)
+    calm = clamp(1.0 - max(stress, anger, 0.7 * fatigue))
+
+    return {
+        "calm": round(calm, 2),
+        "stress": round(stress, 2),
+        "anger": round(anger, 2),
+        "fatigue": round(fatigue, 2),
+        "depression_indicator": round(depression_indicator, 2),
+    }
+
+
 @app.post("/analyze-voice")
 async def analyze_voice(file: UploadFile = File(...)) -> dict:
     """Extract a heuristic prosodic risk signal directly from audio (pause ratio, loudness
@@ -873,9 +1039,11 @@ async def analyze_voice(file: UploadFile = File(...)) -> dict:
             raise HTTPException(status_code=422, detail="Audio is too short to analyze (minimum ~0.5s)")
         features = _prosodic_features(audio, sample_rate)
         risk_signal = _prosodic_risk_signal(features)
+        emotion = _voice_emotion_scores(features)
         return {
             "provider": "local-heuristic",
             "risk_signal": risk_signal,
+            "emotion": emotion,
             **features,
             "note": "Heuristic prosodic signal derived directly from audio (pause ratio, energy variability, speaking rate). Not a validated clinical voice biomarker.",
         }
@@ -898,18 +1066,26 @@ async def analyze_text(payload: TextAnalysisRequest) -> dict:
     negative_hits = sum(term in lowered for term in negative_terms)
     positive_hits = sum(term in lowered for term in positive_terms)
     sentiment: Literal["negative", "neutral", "positive"] = "negative" if negative_hits > positive_hits else "positive" if positive_hits > negative_hits else "neutral"
+    linguistic_features = _linguistic_features(text)
     heuristic_result = {
         "sentiment": sentiment,
         "keyword_flags": keywords,
         "crisis_language": crisis,
         "language": payload.language,
+        **_linguistic_indicators(linguistic_features),
     }
     llm_result = await analyze_with_qwen(text, payload.language)
     provider = "dashscope-qwen" if llm_result else None
     if not llm_result:
         llm_result = await analyze_with_openrouter(text, payload.language)
         provider = "openrouter" if llm_result else None
-    return {**heuristic_result, **(llm_result or {}), "language": payload.language, "provider": provider or "heuristic"}
+    return {
+        **heuristic_result,
+        **(llm_result or {}),
+        "language": payload.language,
+        "provider": provider or "heuristic",
+        "linguistic_features": linguistic_features,
+    }
 
 
 @app.post("/support-resources")

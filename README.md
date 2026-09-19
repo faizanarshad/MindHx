@@ -59,6 +59,9 @@ Three design commitments follow directly from that objective:
 - `/risk-assess` fusing all five signals (PHQ-9, GAD-7, K10, text, voice) into one score, with crisis short-circuiting on PHQ-9 item 9 or detected self-harm language
 - A genuine per-signal attribution breakdown (mathematically exact for this additive scoring model, not an approximation) shown on the results page
 - A local heuristic acoustic signal (pause ratio, loudness variability, speaking rate) extracted directly from recorded audio — a proxy signal, explicitly not a validated biomarker
+- A voice-tone breakdown (calm, stress, anger, fatigue, depression indicator) derived from that same heuristic and shown as bars right after recording and again on the results page — a coarse rule-based reading of pace/pauses/loudness, not a trained emotion classifier
+- A word-choice breakdown (anxiety, stress, depression indicator) for the free-text check-in, going beyond a single sentiment label — a lexicon-and-ratio heuristic informed by published psycholinguistic markers (first-person-singular density, absolutist language like "always"/"never"), shown as bars right after submitting text and again on the results page
+- Optional accounts can recover a forgotten password via an emailed reset link (`/forgot-password` → `/reset-password`); prints to the backend log instead of sending when no SMTP is configured, so the flow is testable with no email setup
 - Theme detection (anxiety, frustration, loss, grief, trauma, hardship, medical concerns) driving tailored coping content
 - A dedicated Emergency Support page, reachable from both the check-in flow and the therapist page
 - A bounded, source-grounded AI chat (`/ai/chat`) that only serves pre-approved reference content after a safety gate — no free-form generation, no diagnosis
@@ -108,21 +111,22 @@ MindHx is designed to compress a screening step that otherwise requires scheduli
 
 **Frontend** (`src/app/`): 12 page routes — home (`/`), results, medication, AI chat, meditation (+ 4 technique detail sub-pages), therapies (+ 5 approach detail sub-pages), therapist, emergency, brand, login, register, and dashboard. Shared components: `SiteHeader` (sticky nav + language toggle, used on every page), `Doodles` (original hand-drawn-style SVG illustrations), and `ProtectedRoute` (client-side auth gate wrapping the dashboard — verifies the session token against `/auth/me` before rendering any content, redirecting to `/login` otherwise). Styling is a single `globals.css` light theme (no CSS framework component library beyond Tailwind's base).
 
-**Backend** (`backend/main.py`, FastAPI): 20 endpoints —
+**Backend** (`backend/main.py`, FastAPI): 22 endpoints —
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | Liveness check |
 | `POST /session/start` | Issues an ephemeral session token; nothing is persisted |
 | `POST /transcribe` | Local `faster-whisper` transcription (`compute_type="int8"`) |
-| `POST /analyze-voice` | Heuristic prosodic signal (pause ratio, loudness variability, speaking rate) via PyAV + numpy — pluggable via `VOICE_BIOMARKER_PROVIDER`, only `local` implemented today |
-| `POST /analyze-text` | Sentiment, keyword flags, crisis-language detection — Qwen (DashScope) → OpenRouter → local heuristic, in that fallback order |
+| `POST /analyze-voice` | Heuristic prosodic signal (pause ratio, loudness variability, speaking rate) via PyAV + numpy, plus a derived calm/stress/anger/fatigue/depression-indicator breakdown — pluggable via `VOICE_BIOMARKER_PROVIDER`, only `local` implemented today |
+| `POST /analyze-text` | Sentiment, keyword flags, crisis-language detection, plus an anxiety/stress/depression-indicator breakdown from lexicon and ratio markers (first-person density, absolutist language, worry/pressure/fatigue terms) — Qwen (DashScope) → OpenRouter → local heuristic, in that fallback order |
 | `POST /support-resources` | Theme-matched coping strategies and meditation content |
 | `POST /ai/chat` | Bounded, source-grounded chat; safety-gated before any content is returned |
 | `POST /synthesize` | Urdu text-to-speech via Uplift AI |
 | `POST /score-phq9`, `/score-gad7`, `/score-k10` | Individual questionnaire scoring |
 | `POST /risk-assess` | Fuses all signals into the combined score, band, explanation, and routing decision |
 | `POST /auth/register`, `/auth/login` | Optional account creation/sign-in; returns a JWT access token |
+| `POST /auth/forgot-password`, `/auth/reset-password` | Emails a single-use, 30-minute reset link (never reveals whether an email is registered) and updates the password from it |
 | `GET /auth/me` | Returns the signed-in user (requires a valid Bearer token) |
 | `POST /checkins`, `GET /checkins` | Save/list a signed-in user's check-in history (aggregate results only) |
 | `POST /mood-checkins`, `GET /mood-checkins` | Save/list a signed-in user's lightweight daily mood log |
@@ -132,7 +136,7 @@ MindHx is designed to compress a screening step that otherwise requires scheduli
 
 **Accounts** (`backend/auth.py`, `database.py`, `models.py`): passwords hashed with bcrypt (never stored in plaintext); sessions are HS256 JWTs with a configurable expiry (`JWT_EXPIRE_MINUTES`, default 60). `JWT_SECRET_KEY` must be set explicitly for any real deployment — if it's missing, the backend generates a random per-process secret and logs a warning, so an unset secret fails safe (invalidating tokens on restart) rather than silently shipping a guessable default. `DATABASE_URL` defaults to a local SQLite file so no database setup is needed for local dev or tests; set it to a `postgresql://...` URL (via `psycopg2-binary`, already a dependency) for production, and `docker-compose.yml` provisions a Postgres 16 container automatically.
 
-**Testing:** 23 backend tests (`backend/test_main.py`) covering crisis short-circuiting, theme detection (including a regression test for a fixed keyword-matching bug), the prosodic-signal math independent of PyAV availability, bilingual AI chat responses (including trend-aware replies for signed-in users with saved history), the risk-assessment fusion shape, and the register/login/me/checkins/mood-checkins/helpful-practices account flow. `backend/conftest.py` points each test run at a throwaway SQLite file so the suite is idempotent - it never touches `backend/mindhx.db`. Run with `cd backend && source .venv/bin/activate && pytest test_main.py -v`.
+**Testing:** 26 backend tests (`backend/test_main.py`) covering crisis short-circuiting, theme detection (including a regression test for a fixed keyword-matching bug), the prosodic-signal and voice-tone math independent of PyAV availability, that anxious/stressed/hopeless sample text each score highest on their own linguistic dimension, bilingual AI chat responses (including trend-aware replies for signed-in users with saved history), the risk-assessment fusion shape, the forgot/reset-password flow (including that it never reveals whether an email is registered, and that a reset token is single-use), and the register/login/me/checkins/mood-checkins/helpful-practices account flow. `backend/conftest.py` points each test run at a throwaway SQLite file so the suite is idempotent - it never touches `backend/mindhx.db`. Run with `cd backend && source .venv/bin/activate && pytest test_main.py -v`.
 
 **Stack:** Next.js 16 / React 19 / TypeScript / Tailwind on the frontend; FastAPI / Pydantic / SQLAlchemy / faster-whisper / PyAV / numpy / httpx on the backend; PostgreSQL (SQLite in local dev) for the optional accounts feature; bcrypt + PyJWT for authentication; Qwen via Alibaba Cloud DashScope (preferred) or OpenRouter (fallback) for text classification; Uplift AI for Urdu speech synthesis.
 
