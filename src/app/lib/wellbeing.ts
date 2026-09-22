@@ -3,8 +3,8 @@
 // context. Anonymous users get a browser-local version of both; signed-in
 // users additionally get it saved server-side (see backend/models.py).
 import { getToken, isLoggedIn } from "./auth";
+import { API_BASE } from "./api";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const MOOD_KEY = "mindhx:mood-checkins";
 const PRACTICES_KEY = "mindhx:helpful-practices";
 
@@ -39,7 +39,7 @@ export async function recordMood(mood: number): Promise<void> {
   writeLocal(MOOD_KEY, moods.slice(-14));
   if (!isLoggedIn()) return;
   try {
-    await fetch(`${API_URL}/mood-checkins`, {
+    await fetch(`${API_BASE}/mood-checkins`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ mood }),
@@ -57,7 +57,7 @@ export async function recordHelpfulPractice(practiceName: string): Promise<void>
   }
   if (!isLoggedIn()) return;
   try {
-    await fetch(`${API_URL}/helpful-practices`, {
+    await fetch(`${API_BASE}/helpful-practices`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ practice_name: practiceName }),

@@ -7,8 +7,9 @@
 // httpOnly, Secure, SameSite cookie issued by the backend instead, which
 // keeps the token out of reach of page JavaScript entirely.
 
+import { API_BASE } from "./api";
+
 const TOKEN_KEY = "mindhx:auth-token";
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -52,7 +53,7 @@ export type CurrentUser = { id: string; email: string; age_range: string | null;
 export type CheckInRecord = { id: string; risk_score: number; band: string; routing_decision: string; themes: string[]; created_at: string };
 
 export async function register(email: string, password: string, ageRange?: string): Promise<string> {
-  const response = await fetch(`${API_URL}/auth/register`, {
+  const response = await fetch(`${API_BASE}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password, age_range: ageRange || null }),
@@ -64,7 +65,7 @@ export async function register(email: string, password: string, ageRange?: strin
 }
 
 export async function login(email: string, password: string): Promise<string> {
-  const response = await fetch(`${API_URL}/auth/login`, {
+  const response = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -80,7 +81,7 @@ export function logout(): void {
 }
 
 export async function requestPasswordReset(email: string): Promise<string> {
-  const response = await fetch(`${API_URL}/auth/forgot-password`, {
+  const response = await fetch(`${API_BASE}/auth/forgot-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
@@ -91,7 +92,7 @@ export async function requestPasswordReset(email: string): Promise<string> {
 }
 
 export async function resetPassword(token: string, newPassword: string): Promise<string> {
-  const response = await fetch(`${API_URL}/auth/reset-password`, {
+  const response = await fetch(`${API_BASE}/auth/reset-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token, new_password: newPassword }),
@@ -104,7 +105,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
 async function authFetch(path: string, init?: RequestInit): Promise<Response> {
   const token = getToken();
   if (!token) throw new Error("Not signed in");
-  return fetch(`${API_URL}${path}`, {
+  return fetch(`${API_BASE}${path}`, {
     ...init,
     headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${token}` },
   });

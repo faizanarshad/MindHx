@@ -11,6 +11,7 @@ import { ClinicalSignalGraphic, VoiceSignalGraphic, WordsSignalGraphic } from ".
 import VoiceEmotionBars, { type VoiceEmotion } from "./components/VoiceEmotionBars";
 import TextMoodBars, { type TextMoodScores } from "./components/TextMoodBars";
 import { isLoggedIn, saveCheckIn } from "./lib/auth";
+import { API_BASE } from "./lib/api";
 
 const questionsEn = ["Little interest or pleasure in doing things", "Feeling down, depressed, or hopeless", "Trouble falling or staying asleep, or sleeping too much", "Feeling tired or having little energy", "Poor appetite or overeating", "Feeling bad about yourself, or that you are a failure", "Trouble concentrating on things", "Moving or speaking slowly, or being unusually restless", "Thoughts that you would be better off dead or hurting yourself"];
 const gadQuestionsEn = ["Feeling nervous, anxious, or on edge", "Not being able to stop or control worrying", "Worrying too much about different things", "Trouble relaxing", "Being so restless that it is hard to sit still", "Becoming easily annoyed or irritable", "Feeling afraid as if something awful might happen"];
@@ -229,7 +230,7 @@ export default function HomeClient() {
     setTextSubmitError("");
     setTextSubmitResult(null);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/analyze-text`, {
+      const response = await fetch(`${API_BASE}/analyze-text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: typedText, language: language === "اردو" ? "ur" : "en" }),
@@ -255,7 +256,7 @@ export default function HomeClient() {
       return;
     }
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/session/start`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile: { age_range: profile.ageRange || null, gender: profile.gender || null, marital_status: profile.maritalStatus || null, life_context: profile.lifeContext || null, preferred_language: language === "اردو" ? "ur" : "en" } }) });
+      const response = await fetch(`${API_BASE}/session/start`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile: { age_range: profile.ageRange || null, gender: profile.gender || null, marital_status: profile.maritalStatus || null, life_context: profile.lifeContext || null, preferred_language: language === "اردو" ? "ur" : "en" } }) });
       if (!response.ok) throw new Error("Session unavailable");
       const result = await response.json() as { session_token: string };
       setSessionToken(result.session_token);
@@ -283,13 +284,12 @@ export default function HomeClient() {
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
         setTranscribing(true);
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
         const audioBlob = new Blob(audioChunks.current, { type: "audio/webm" });
         try {
           const formData = new FormData();
           formData.append("file", audioBlob, "mindhx-voice.webm");
           formData.append("language", language === "اردو" ? "ur" : "en");
-          const response = await fetch(`${apiUrl}/transcribe`, { method: "POST", body: formData });
+          const response = await fetch(`${API_BASE}/transcribe`, { method: "POST", body: formData });
           if (!response.ok) throw new Error("Transcription failed");
           const result = await response.json() as { text: string };
           setTranscript(result.text);
@@ -301,7 +301,7 @@ export default function HomeClient() {
         try {
           const voiceFormData = new FormData();
           voiceFormData.append("file", audioBlob, "mindhx-voice.webm");
-          const voiceResponse = await fetch(`${apiUrl}/analyze-voice`, { method: "POST", body: voiceFormData });
+          const voiceResponse = await fetch(`${API_BASE}/analyze-voice`, { method: "POST", body: voiceFormData });
           if (!voiceResponse.ok) throw new Error("Voice analysis unavailable");
           const voiceResult = await voiceResponse.json() as { risk_signal: number; pause_ratio: number; energy_variability: number; speaking_rate: number; emotion: VoiceEmotion };
           setVoiceFeatures({ risk_signal: voiceResult.risk_signal, pause_ratio: voiceResult.pause_ratio, energy_variability: voiceResult.energy_variability, speaking_rate: voiceResult.speaking_rate, emotion: voiceResult.emotion });
@@ -322,12 +322,11 @@ export default function HomeClient() {
     setAssessmentLoading(true);
     setAssessmentError("");
     setRiskResult(null);
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
     try {
       const combinedText = `${transcript}\n${typedText}`.trim();
       const [textResponse, phqResponse] = await Promise.all([
-        fetch(`${apiUrl}/analyze-text`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: combinedText, language: language === "اردو" ? "ur" : "en" }) }),
-        fetch(`${apiUrl}/score-phq9`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answers }) }),
+        fetch(`${API_BASE}/analyze-text`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: combinedText, language: language === "اردو" ? "ur" : "en" }) }),
+        fetch(`${API_BASE}/score-phq9`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answers }) }),
       ]);
       if (!textResponse.ok || !phqResponse.ok) throw new Error("MindHx assessment unavailable");
       const textAnalysis = await textResponse.json();
@@ -346,7 +345,7 @@ export default function HomeClient() {
         setAssessmentError(language === "اردو" ? "خطرے کے مکمل جائزے کے لیے GAD-7 اور K10 بھی مکمل کریں۔" : "Complete GAD-7 and K10 before the combined risk assessment.");
         return;
       }
-      const riskResponse = await fetch(`${apiUrl}/risk-assess`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript, typed_text: typedText, language: language === "اردو" ? "ur" : "en", phq9_answers: answers, gad7_answers: gadAnswers, k10_answers: k10Answers.map((answer) => answer + 1), profile: { age_range: profile.ageRange, gender: profile.gender || null, marital_status: profile.maritalStatus || null, life_context: profile.lifeContext || null, preferred_language: language === "اردو" ? "ur" : "en" }, text_analysis: textAnalysis, phq9_result: phq9Result, voice_features: voiceFeatures }) });
+      const riskResponse = await fetch(`${API_BASE}/risk-assess`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript, typed_text: typedText, language: language === "اردو" ? "ur" : "en", phq9_answers: answers, gad7_answers: gadAnswers, k10_answers: k10Answers.map((answer) => answer + 1), profile: { age_range: profile.ageRange, gender: profile.gender || null, marital_status: profile.maritalStatus || null, life_context: profile.lifeContext || null, preferred_language: language === "اردو" ? "ur" : "en" }, text_analysis: textAnalysis, phq9_result: phq9Result, voice_features: voiceFeatures }) });
       if (!riskResponse.ok) throw new Error("Risk assessment unavailable");
       const result = await riskResponse.json();
       sessionStorage.setItem("mindhx:last-result", JSON.stringify(result));
@@ -365,7 +364,7 @@ export default function HomeClient() {
     setSpeaking(true);
     setVoiceError("");
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/synthesize`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: speechText, language: "ur" }) });
+      const response = await fetch(`${API_BASE}/synthesize`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: speechText, language: "ur" }) });
       if (!response.ok) throw new Error("Speech generation failed");
       const audio = new Audio(URL.createObjectURL(await response.blob()));
       audio.onended = () => URL.revokeObjectURL(audio.src);

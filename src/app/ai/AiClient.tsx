@@ -9,6 +9,7 @@ import { naturePhotos } from "../components/naturePhotos";
 import ExerciseStepper from "../components/ExerciseStepper";
 import MoodCheckIn from "../components/MoodCheckIn";
 import { getLocalHelpfulPractices, getLocalMoods, recordHelpfulPractice, recordMood } from "../lib/wellbeing";
+import { API_BASE } from "../lib/api";
 import SiteFooter from "../components/SiteFooter";
 
 type Source = { id: string; title: string; content: string; link: string };
@@ -138,7 +139,7 @@ export default function AiClient() {
     setInput("");
     setLoading(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/ai/chat`, {
+      const response = await fetch(`${API_BASE}/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
