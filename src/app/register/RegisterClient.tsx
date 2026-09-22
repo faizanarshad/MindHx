@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import SiteHeader from "../components/SiteHeader";
 import NatureBanner from "../components/NatureBanner";
@@ -11,6 +11,8 @@ import { register } from "../lib/auth";
 
 export default function RegisterClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = searchParams.get("next") || "/dashboard";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -43,7 +45,7 @@ export default function RegisterClient() {
         lifeContext,
         preferredLanguage,
       });
-      router.push("/dashboard");
+      router.push(nextPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Account creation failed.");
     } finally {
@@ -57,8 +59,8 @@ export default function RegisterClient() {
       <SiteHeader backLabel="Back to check-in" />
       <section className="resource-hero auth-hero">
         <p className="eyebrow">ACCOUNT</p>
-        <h1>Create an account<br /><em>entirely optional.</em></h1>
-        <p>An account lets you save check-in results (score, band, and themes only - never your transcript or written answers) and revisit them later. You can keep using MindHx anonymously without one.</p>
+        <h1>Create an account<br /><em>to see your results.</em></h1>
+        <p>Viewing your check-in results requires an account, so you can safely revisit them later. We only ever save the score, band, and themes - never your transcript or written answers.</p>
       </section>
       <NatureBanner {...naturePhotos.forestPath} priority />
       <form className="auth-form" onSubmit={handleSubmit}>
@@ -127,7 +129,7 @@ export default function RegisterClient() {
         </label>
         {error && <p className="assessment-error auth-error">{error}</p>}
         <button className="check-in-button" type="submit" disabled={loading}>{loading ? "Creating account…" : "Create account"} <span>→</span></button>
-        <p className="auth-switch">Already have an account? <Link href="/login">Sign in</Link></p>
+        <p className="auth-switch">Already have an account? <Link href={`/login${nextPath !== "/dashboard" ? `?next=${encodeURIComponent(nextPath)}` : ""}`}>Sign in</Link></p>
       </form>
     </main>
     <SiteFooter />

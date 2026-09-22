@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import SiteHeader from "../components/SiteHeader";
 import NatureBanner from "../components/NatureBanner";
@@ -11,6 +11,8 @@ import { login } from "../lib/auth";
 
 export default function LoginClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = searchParams.get("next") || "/dashboard";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -22,7 +24,7 @@ export default function LoginClient() {
     setLoading(true);
     try {
       await login(email, password);
-      router.push("/dashboard");
+      router.push(nextPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed.");
     } finally {
@@ -36,8 +38,8 @@ export default function LoginClient() {
       <SiteHeader backLabel="Back to check-in" />
       <section className="resource-hero auth-hero">
         <p className="eyebrow">ACCOUNT</p>
-        <h1>Sign in<br /><em>to see your history.</em></h1>
-        <p>Signing in is entirely optional. Your check-in itself never requires an account - this only lets you save and revisit past results.</p>
+        <h1>Sign in<br /><em>to see your results.</em></h1>
+        <p>Viewing your check-in results requires an account, so you can safely revisit them later. We only ever save the score, band, and themes - never your transcript or written answers.</p>
       </section>
       <NatureBanner {...naturePhotos.forestPath} priority />
       <form className="auth-form" onSubmit={handleSubmit}>
@@ -54,7 +56,7 @@ export default function LoginClient() {
         </label>
         {error && <p className="assessment-error auth-error">{error}</p>}
         <button className="check-in-button" type="submit" disabled={loading}>{loading ? "Signing in…" : "Sign in"} <span>→</span></button>
-        <p className="auth-switch">Don&apos;t have an account? <Link href="/register">Create one</Link></p>
+        <p className="auth-switch">Don&apos;t have an account? <Link href={`/register${nextPath !== "/dashboard" ? `?next=${encodeURIComponent(nextPath)}` : ""}`}>Create one</Link></p>
       </form>
     </main>
     <SiteFooter />

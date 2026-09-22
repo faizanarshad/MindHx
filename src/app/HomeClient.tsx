@@ -174,6 +174,11 @@ function combinedLiveEstimate(answers: number[], gadAnswers: number[], k10Answer
   return weightTotal ? Math.round((weightedSum / weightTotal) * 100) : 0;
 }
 
+// Holds the in-progress check-in (recording, answers, profile) across the
+// redirect to sign in - viewing results now requires an account, but
+// bouncing someone to /login shouldn't throw away what they just recorded.
+const CHECKIN_DRAFT_KEY = "mindhx:pending-checkin";
+
 export default function HomeClient() {
   const router = useRouter();
   const [answers, setAnswers] = useState(Array(questionsEn.length).fill(-1));
@@ -197,6 +202,7 @@ export default function HomeClient() {
   const [textSubmitResult, setTextSubmitResult] = useState<({ sentiment: string } & TextMoodScores) | null>(null);
   const [assessmentLoading, setAssessmentLoading] = useState(false);
   const [assessmentError, setAssessmentError] = useState("");
+  const [resumeNotice, setResumeNotice] = useState("");
   const [riskResult, setRiskResult] = useState<{ risk_score: number; band: string; routing_decision: string; explanation: string[]; themes?: string[]; components?: { phq9: { signal: number; score: number; band: string }; gad7: { signal: number; score: number; band: string }; k10: { signal: number; score: number; band: string }; text: { signal: number; sentiment: string; crisis_language: boolean }; voice: { signal: number | null; available: boolean; note: string }; combined_signal: number }; phq9?: { total_score: number; severity_band: string }; gad7?: { total_score: number; severity_band: string }; k10?: { total_score: number; severity_band: string }; support_plan?: { route: string; title: string; next_action: string; psychiatric_referral?: { what_to_expect?: string[]; provider_search?: string; action?: string }; professional_contact?: { recommended: boolean; action: string; what_to_say: string }; meditation: { name: string; themes: string[]; steps: string }[]; strategies?: { name: string; themes: string[]; steps: string }[]; support_groups?: { name: string; description: string }[]; resources?: { name: string; description: string }[] } } | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
@@ -221,7 +227,33 @@ export default function HomeClient() {
   }
 
   useEffect(() => {
-    startTransition(() => setHasAccount(isLoggedIn()));
+    const loggedIn = isLoggedIn();
+    startTransition(() => setHasAccount(loggedIn));
+    if (!loggedIn) return;
+    try {
+      const raw = sessionStorage.getItem(CHECKIN_DRAFT_KEY);
+      if (!raw) return;
+      sessionStorage.removeItem(CHECKIN_DRAFT_KEY);
+      const draft = JSON.parse(raw);
+      startTransition(() => {
+        if (typeof draft.transcript === "string") setTranscript(draft.transcript);
+        if (typeof draft.typedText === "string") setTypedText(draft.typedText);
+        if (Array.isArray(draft.answers)) setAnswers(draft.answers);
+        if (Array.isArray(draft.gadAnswers)) setGadAnswers(draft.gadAnswers);
+        if (Array.isArray(draft.k10Answers)) setK10Answers(draft.k10Answers);
+        if (draft.profile) setProfile(draft.profile);
+        if (typeof draft.language === "string") setLanguage(draft.language);
+        if (draft.voiceFeatures) setVoiceFeatures(draft.voiceFeatures);
+        if (typeof draft.sessionToken === "string") setSessionToken(draft.sessionToken);
+        setResumeNotice(
+          draft.language === "اردو"
+            ? "خوش آمدید - آپ کے جوابات بحال کر دیے گئے ہیں۔ نتائج دیکھنے کے لیے دوبارہ \"میرا جائزہ دیکھیں\" دبائیں۔"
+            : "Welcome back - your answers were restored. Click “See my check-in” again to view your results."
+        );
+      });
+    } catch {
+      // Corrupt or unavailable draft - nothing to restore, no harm done.
+    }
   }, []);
 
   async function handleSubmitText() {
@@ -319,6 +351,17 @@ export default function HomeClient() {
 
   async function handleCheckIn() {
     if (!isComplete) return;
+    if (!isLoggedIn()) {
+      try {
+        sessionStorage.setItem(CHECKIN_DRAFT_KEY, JSON.stringify({
+          transcript, typedText, answers, gadAnswers, k10Answers, profile, language, voiceFeatures, sessionToken,
+        }));
+      } catch {
+        // Storage unavailable - proceed anyway; they'll just re-enter answers after signing in.
+      }
+      router.push("/login?next=%2F");
+      return;
+    }
     setAssessmentLoading(true);
     setAssessmentError("");
     setRiskResult(null);
@@ -388,7 +431,7 @@ export default function HomeClient() {
           <article className="signal-card"><WordsSignalGraphic /><div className="card-heading"><div><p className="card-kicker">SIGNAL 02</p><h2>{text.words}</h2></div><span className="ready-label">{text.ready}</span></div><p className="card-description">{text.wordsDescription}</p><textarea value={typedText} onChange={(event) => setTypedText(event.target.value)} placeholder={text.placeholder} aria-label={text.wordsDescription} /><div className="text-footer"><span>{text.optional}</span><span>{typedText.length} / 500</span></div><div className="text-actions"><button className="check-in-button text-submit-button" onClick={handleSubmitText} disabled={textSubmitting || !typedText.trim()}>{textSubmitting ? text.submittingText : text.submitText}</button><button className="speech-button" onClick={handleUrduSpeech} disabled={speaking || language !== "اردو" || !(`${transcript}\n${typedText}`.trim())}>{speaking ? text.speaking : text.speakUrdu}</button></div><span className="microcopy">{text.textSubmitHint}</span>{textSubmitResult && <p className="text-submit-result"><b>{text.textSentiment}:</b> {textSubmitResult.sentiment}</p>}{textSubmitResult && <TextMoodBars scores={textSubmitResult} title="Word-choice breakdown" />}{textSubmitError && <span className="microcopy">{textSubmitError}</span>}{voiceError && <span className="microcopy">{voiceError}</span>}</article>
           <article className="signal-card phq-card"><ClinicalSignalGraphic /><div className="card-heading"><div><p className="card-kicker">SIGNAL 03 · {completedScales} / 3 COMPLETE</p><h2>{text.clinical}</h2></div><span className="progress-label">{activeAnswers.filter((answer) => answer > -1).length} / {activeQuestions.length}</span></div><p className="card-description">{text.clinicalDescription}</p><div className="scale-tabs"><button className={activeScale === "phq9" ? "active" : ""} onClick={() => { setActiveScale("phq9"); setActiveQuestion(0); }}>PHQ-9</button><button className={activeScale === "gad7" ? "active" : ""} onClick={() => { setActiveScale("gad7"); setActiveQuestion(0); }}>GAD-7</button><button className={activeScale === "k10" ? "active" : ""} onClick={() => { setActiveScale("k10"); setActiveQuestion(0); }}>K10</button></div><div className="question-progress"><span style={{ width: `${(activeAnswers.filter((answer) => answer > -1).length / activeQuestions.length) * 100}%` }} /></div><p className="question-number">{activeScale.toUpperCase()} · {activeQuestion + 1} / {activeQuestions.length}</p><h3>{activeQuestions[activeQuestion]}</h3><div className="answer-list">{activeOptions.map((option, index) => <button key={option} className={activeAnswers[activeQuestion] === index ? "selected" : ""} onClick={() => updateActiveAnswer(index)}><span className="radio" />{option}</button>)}</div><div className="question-actions"><button className="back-button" disabled={activeQuestion === 0} onClick={() => setActiveQuestion(activeQuestion - 1)}>{text.back}</button><button className="next-button" onClick={() => setActiveQuestion(Math.min(activeQuestions.length - 1, activeQuestion + 1))}>{activeQuestion === activeQuestions.length - 1 ? text.review : text.next}<span>→</span></button></div></article>
         </div>
-        <section className="bottom-row"><div className="score-preview"><div className="score-ring"><strong>{riskResult ? Math.round(riskResult.risk_score * 100) : score}</strong><span>/ 100</span></div><div><p className="card-kicker">{text.estimate}</p><h2>{text.picture}</h2><p>{riskResult ? riskResult.band : text.pictureDescription}</p><div className="scale-outcomes"><span><b>PHQ-9</b> {liveScores.phq9}/27</span><span><b>GAD-7</b> {liveScores.gad7}/21</span><span><b>K10</b> {liveScores.k10}/50</span></div></div></div><div><button className="check-in-button" onClick={handleCheckIn} disabled={assessmentLoading}>{assessmentLoading ? text.processing : text.seeCheckIn} <span>→</span></button>{assessmentError && <p className="assessment-error">{assessmentError}</p>}</div></section>
+        <section className="bottom-row"><div className="score-preview"><div className="score-ring"><strong>{riskResult ? Math.round(riskResult.risk_score * 100) : score}</strong><span>/ 100</span></div><div><p className="card-kicker">{text.estimate}</p><h2>{text.picture}</h2><p>{riskResult ? riskResult.band : text.pictureDescription}</p><div className="scale-outcomes"><span><b>PHQ-9</b> {liveScores.phq9}/27</span><span><b>GAD-7</b> {liveScores.gad7}/21</span><span><b>K10</b> {liveScores.k10}/50</span></div></div></div><div><button className="check-in-button" onClick={handleCheckIn} disabled={assessmentLoading}>{assessmentLoading ? text.processing : text.seeCheckIn} <span>→</span></button>{!hasAccount && <span className="microcopy">Sign in or create an account to view your results.</span>}{resumeNotice && <p className="microcopy">{resumeNotice}</p>}{assessmentError && <p className="assessment-error">{assessmentError}</p>}</div></section>
         {componentEvaluation}
         <section className="about-mindhx">
           <p className="eyebrow">{text.aboutEyebrow}</p>
@@ -409,7 +452,7 @@ export default function HomeClient() {
         <p className="disclaimer"><span>ⓘ</span> {text.disclaimer} <Link href="/brand" className="brand-link">Brand ↗</Link></p>
       </main>
       <SiteFooter language={language === "اردو" ? "اردو" : "English"} />
-      {showProfile && <div className="modal-backdrop" onClick={() => setShowProfile(false)}><div className="modal profile-modal" onClick={(event) => event.stopPropagation()}><button className="close" onClick={() => setShowProfile(false)}>×</button><p className="eyebrow">PRIVATE SESSION CONTEXT</p><h2>Share only what helps.</h2><p>These fields are optional except age range. They stay in memory for this session and are not used to create an account.</p><div className="profile-fields"><select value={profile.ageRange} onChange={(event) => setProfile({ ...profile, ageRange: event.target.value })} aria-label="Age range"><option value="">Age range</option><option>18-24</option><option>25-34</option><option>35-44</option><option>45+</option></select><select value={profile.gender} onChange={(event) => setProfile({ ...profile, gender: event.target.value })} aria-label="Gender"><option value="">Gender (optional)</option><option>Woman</option><option>Man</option><option>Non-binary</option><option>Prefer not to say</option></select><select value={profile.maritalStatus} onChange={(event) => setProfile({ ...profile, maritalStatus: event.target.value })} aria-label="Relationship status"><option value="">Relationship status</option><option>Single</option><option>Partnered</option><option>Married</option><option>Prefer not to say</option></select><select value={profile.lifeContext} onChange={(event) => setProfile({ ...profile, lifeContext: event.target.value })} aria-label="Life context"><option value="">Life context (optional)</option><option>Student</option><option>Working</option><option>Retired</option><option>Between roles</option><option>Caregiving</option></select></div><button className="check-in-button" onClick={createPrivateSession}>{sessionToken ? "Update session context" : "Continue privately"} <span>→</span></button><p className="profile-modal-auth">Want to save your check-in history? <Link href="/login">Sign in</Link> or <Link href="/register">create an account</Link> - both stay entirely optional.</p></div></div>}
+      {showProfile && <div className="modal-backdrop" onClick={() => setShowProfile(false)}><div className="modal profile-modal" onClick={(event) => event.stopPropagation()}><button className="close" onClick={() => setShowProfile(false)}>×</button><p className="eyebrow">PRIVATE SESSION CONTEXT</p><h2>Share only what helps.</h2><p>These fields are optional except age range. They stay in memory for this session and are not used to create an account.</p><div className="profile-fields"><select value={profile.ageRange} onChange={(event) => setProfile({ ...profile, ageRange: event.target.value })} aria-label="Age range"><option value="">Age range</option><option>18-24</option><option>25-34</option><option>35-44</option><option>45+</option></select><select value={profile.gender} onChange={(event) => setProfile({ ...profile, gender: event.target.value })} aria-label="Gender"><option value="">Gender (optional)</option><option>Woman</option><option>Man</option><option>Non-binary</option><option>Prefer not to say</option></select><select value={profile.maritalStatus} onChange={(event) => setProfile({ ...profile, maritalStatus: event.target.value })} aria-label="Relationship status"><option value="">Relationship status</option><option>Single</option><option>Partnered</option><option>Married</option><option>Prefer not to say</option></select><select value={profile.lifeContext} onChange={(event) => setProfile({ ...profile, lifeContext: event.target.value })} aria-label="Life context"><option value="">Life context (optional)</option><option>Student</option><option>Working</option><option>Retired</option><option>Between roles</option><option>Caregiving</option></select></div><button className="check-in-button" onClick={createPrivateSession}>{sessionToken ? "Update session context" : "Continue privately"} <span>→</span></button><p className="profile-modal-auth"><Link href="/login">Sign in</Link> or <Link href="/register">create an account</Link> to view your check-in results and save your history.</p></div></div>}
     </div>
   );
 }

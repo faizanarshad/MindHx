@@ -9,6 +9,7 @@ import { DoodleLeaf, DoodleSpeechBubble, DoodleSun } from "../components/Doodles
 import SiteFooter from "../components/SiteFooter";
 import VoiceEmotionBars, { type VoiceEmotion } from "../components/VoiceEmotionBars";
 import TextMoodBars from "../components/TextMoodBars";
+import { isLoggedIn } from "../lib/auth";
 
 type Result = {
   risk_score: number;
@@ -45,11 +46,15 @@ export default function ResultsClient() {
   const [result, setResult] = useState<Result | null>(null);
 
   useEffect(() => {
+    if (!isLoggedIn()) {
+      router.replace("/login?next=%2Fresults");
+      return;
+    }
     const stored = sessionStorage.getItem("mindhx:last-result");
     if (stored) {
       startTransition(() => setResult(JSON.parse(stored) as Result));
     }
-  }, []);
+  }, [router]);
 
   if (!result) {
     return <><main className="results-page empty-results"><p className="eyebrow">MINDHX / RESULTS</p><h1>Your check-in is not ready yet.</h1><p>Complete the private assessment first, then return here to review your signals.</p><button className="result-primary" onClick={() => router.push("/")}>Back to check-in <span>→</span></button></main><SiteFooter /></>;
