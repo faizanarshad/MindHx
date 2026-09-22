@@ -10,6 +10,7 @@ import secrets
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -881,11 +882,29 @@ def start_session(payload: SessionStartRequest) -> dict:
     }
 
 
+@lru_cache(maxsize=1)
+def _get_whisper_model():
+    """Loads the faster-whisper model once per process and reuses it.
+
+    Constructing WhisperModel is expensive - it downloads the model (on first
+    use) and loads several hundred MB into memory - so building a fresh one
+    on every /transcribe call was both slow enough to time out requests and
+    heavy enough to risk the process being OOM-killed under a memory limit.
+    """
+    from faster_whisper import WhisperModel
+
+    return WhisperModel(
+        os.getenv("WHISPER_MODEL", "small"),
+        device=os.getenv("WHISPER_DEVICE", "cpu"),
+        compute_type="int8",
+    )
+
+
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...), language: str = Form("auto")) -> dict:
     """Transcribe audio with local faster-whisper using int8 quantization."""
     try:
-        from faster_whisper import WhisperModel
+        model = _get_whisper_model()
     except ImportError as error:
         raise HTTPException(status_code=503, detail="faster-whisper is not installed") from error
 
@@ -899,11 +918,6 @@ async def transcribe(file: UploadFile = File(...), language: str = Form("auto"))
         temp_path = temp_file.name
 
     try:
-        model = WhisperModel(
-            os.getenv("WHISPER_MODEL", "small"),
-            device=os.getenv("WHISPER_DEVICE", "cpu"),
-            compute_type="int8",
-        )
         segments, info = model.transcribe(temp_path, language=None if language == "auto" else language)
         text = " ".join(segment.text.strip() for segment in segments).strip()
         return {"text": text, "language": info.language, "language_probability": round(info.language_probability, 3)}
