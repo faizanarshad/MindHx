@@ -221,6 +221,12 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=72)
     age_range: Optional[str] = Field(default=None, max_length=20)
+    full_name: Optional[str] = Field(default=None, max_length=120)
+    phone: Optional[str] = Field(default=None, max_length=30)
+    gender: Optional[str] = Field(default=None, max_length=40)
+    marital_status: Optional[str] = Field(default=None, max_length=40)
+    life_context: Optional[str] = Field(default=None, max_length=40)
+    preferred_language: Optional[str] = Field(default=None, max_length=10)
 
 
 class LoginRequest(BaseModel):
@@ -752,7 +758,18 @@ def health() -> dict[str, str]:
 
 
 def _serialize_user(user: User) -> dict:
-    return {"id": user.id, "email": user.email, "age_range": user.age_range, "created_at": user.created_at.isoformat()}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "age_range": user.age_range,
+        "full_name": user.full_name,
+        "phone": user.phone,
+        "gender": user.gender,
+        "marital_status": user.marital_status,
+        "life_context": user.life_context,
+        "preferred_language": user.preferred_language,
+        "created_at": user.created_at.isoformat(),
+    }
 
 
 def _serialize_checkin(check_in: CheckIn) -> dict:
@@ -772,7 +789,17 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict:
     email = payload.email.lower()
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=409, detail="An account with this email already exists")
-    user = User(email=email, hashed_password=hash_password(payload.password), age_range=payload.age_range)
+    user = User(
+        email=email,
+        hashed_password=hash_password(payload.password),
+        age_range=payload.age_range,
+        full_name=payload.full_name,
+        phone=payload.phone,
+        gender=payload.gender,
+        marital_status=payload.marital_status,
+        life_context=payload.life_context,
+        preferred_language=payload.preferred_language,
+    )
     db.add(user)
     db.commit()
     db.refresh(user)

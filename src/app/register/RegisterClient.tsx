@@ -13,7 +13,13 @@ export default function RegisterClient() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [ageRange, setAgeRange] = useState("");
+  const [gender, setGender] = useState("");
+  const [maritalStatus, setMaritalStatus] = useState("");
+  const [lifeContext, setLifeContext] = useState("");
+  const [preferredLanguage, setPreferredLanguage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -26,7 +32,17 @@ export default function RegisterClient() {
     }
     setLoading(true);
     try {
-      await register(email, password, ageRange);
+      await register({
+        email,
+        password,
+        fullName,
+        phone,
+        ageRange,
+        gender,
+        maritalStatus,
+        lifeContext,
+        preferredLanguage,
+      });
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Account creation failed.");
@@ -55,6 +71,14 @@ export default function RegisterClient() {
           <input type="password" required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" />
         </label>
         <label>
+          <span>Full name (optional)</span>
+          <input type="text" value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" placeholder="Your name" />
+        </label>
+        <label>
+          <span>Phone number (optional)</span>
+          <input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" placeholder="+1 555 123 4567" />
+        </label>
+        <label>
           <span>Age range (optional)</span>
           <select value={ageRange} onChange={(event) => setAgeRange(event.target.value)}>
             <option value="">Prefer not to say</option>
@@ -62,6 +86,43 @@ export default function RegisterClient() {
             <option>25-34</option>
             <option>35-44</option>
             <option>45+</option>
+          </select>
+        </label>
+        <label>
+          <span>Gender (optional)</span>
+          <select value={gender} onChange={(event) => setGender(event.target.value)}>
+            <option value="">Prefer not to say</option>
+            <option>Woman</option>
+            <option>Man</option>
+            <option>Non-binary</option>
+          </select>
+        </label>
+        <label>
+          <span>Relationship status (optional)</span>
+          <select value={maritalStatus} onChange={(event) => setMaritalStatus(event.target.value)}>
+            <option value="">Prefer not to say</option>
+            <option>Single</option>
+            <option>Partnered</option>
+            <option>Married</option>
+          </select>
+        </label>
+        <label>
+          <span>Life context (optional)</span>
+          <select value={lifeContext} onChange={(event) => setLifeContext(event.target.value)}>
+            <option value="">Prefer not to say</option>
+            <option>Student</option>
+            <option>Working</option>
+            <option>Retired</option>
+            <option>Between roles</option>
+            <option>Caregiving</option>
+          </select>
+        </label>
+        <label>
+          <span>Preferred language (optional)</span>
+          <select value={preferredLanguage} onChange={(event) => setPreferredLanguage(event.target.value)}>
+            <option value="">No preference</option>
+            <option value="en">English</option>
+            <option value="ur">اردو (Urdu)</option>
           </select>
         </label>
         {error && <p className="assessment-error auth-error">{error}</p>}

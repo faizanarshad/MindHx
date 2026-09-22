@@ -33,6 +33,12 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     age_range: Mapped[str] = mapped_column(String(20), nullable=True)
+    full_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    gender: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    marital_status: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    life_context: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    preferred_language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     check_ins: Mapped[list["CheckIn"]] = relationship(back_populates="user", cascade="all, delete-orphan")

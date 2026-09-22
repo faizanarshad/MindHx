@@ -49,14 +49,47 @@ async function parseErrorDetail(response: Response): Promise<string> {
   }
 }
 
-export type CurrentUser = { id: string; email: string; age_range: string | null; created_at: string };
+export type CurrentUser = {
+  id: string;
+  email: string;
+  age_range: string | null;
+  full_name: string | null;
+  phone: string | null;
+  gender: string | null;
+  marital_status: string | null;
+  life_context: string | null;
+  preferred_language: string | null;
+  created_at: string;
+};
 export type CheckInRecord = { id: string; risk_score: number; band: string; routing_decision: string; themes: string[]; created_at: string };
 
-export async function register(email: string, password: string, ageRange?: string): Promise<string> {
+export type RegisterProfile = {
+  email: string;
+  password: string;
+  ageRange?: string;
+  fullName?: string;
+  phone?: string;
+  gender?: string;
+  maritalStatus?: string;
+  lifeContext?: string;
+  preferredLanguage?: string;
+};
+
+export async function register(profile: RegisterProfile): Promise<string> {
   const response = await fetch(`${API_BASE}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, age_range: ageRange || null }),
+    body: JSON.stringify({
+      email: profile.email,
+      password: profile.password,
+      age_range: profile.ageRange || null,
+      full_name: profile.fullName || null,
+      phone: profile.phone || null,
+      gender: profile.gender || null,
+      marital_status: profile.maritalStatus || null,
+      life_context: profile.lifeContext || null,
+      preferred_language: profile.preferredLanguage || null,
+    }),
   });
   if (!response.ok) throw new Error(await parseErrorDetail(response));
   const result = await response.json() as { access_token: string };
