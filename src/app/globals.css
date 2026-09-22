@@ -173,6 +173,10 @@ textarea::placeholder { color:#9aa6b4; }
 .question-progress { height:4px; border-radius:4px; background:var(--line); margin:23px 0 25px; }
 .question-progress span { display:block; height:100%; background:linear-gradient(90deg,var(--blue),var(--teal)); border-radius:inherit; transition:width .3s; }
 .phq-card h3 { font-size:16px; font-weight:500; margin:0 0 17px; color:var(--navy); }
+.question-list { display:flex; flex-direction:column; }
+.question-block { padding:20px 0; border-bottom:1px solid var(--line); }
+.question-block:first-child { padding-top:0; }
+.question-block:last-child { border-bottom:0; padding-bottom:0; }
 .answer-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; }
 .answer-list button { display:flex; align-items:center; gap:8px; min-height:42px; text-align:left; border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--muted); padding:9px 11px; font-size:11px; }
 .answer-list button:hover,.answer-list button.selected { border-color:var(--blue); background:var(--blue-soft); color:var(--blue-deep); }
