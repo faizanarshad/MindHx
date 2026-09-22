@@ -117,7 +117,7 @@ MindHx is designed to compress a screening step that otherwise requires scheduli
 |---|---|
 | `GET /health` | Liveness check |
 | `POST /session/start` | Issues an ephemeral session token; nothing is persisted |
-| `POST /transcribe` | Local `faster-whisper` transcription (`compute_type="int8"`) |
+| `POST /transcribe` | Transcription via OpenAI's hosted Whisper API |
 | `POST /analyze-voice` | Heuristic prosodic signal (pause ratio, loudness variability, speaking rate) via PyAV + numpy, plus a derived calm/stress/anger/fatigue/depression-indicator breakdown — pluggable via `VOICE_BIOMARKER_PROVIDER`, only `local` implemented today |
 | `POST /analyze-text` | Sentiment, keyword flags, crisis-language detection, plus an anxiety/stress/depression-indicator breakdown from lexicon and ratio markers (first-person density, absolutist language, worry/pressure/fatigue terms) — Qwen (DashScope) → OpenRouter → local heuristic, in that fallback order |
 | `POST /support-resources` | Theme-matched coping strategies and meditation content |
@@ -138,7 +138,7 @@ MindHx is designed to compress a screening step that otherwise requires scheduli
 
 **Testing:** 26 backend tests (`backend/test_main.py`) covering crisis short-circuiting, theme detection (including a regression test for a fixed keyword-matching bug), the prosodic-signal and voice-tone math independent of PyAV availability, that anxious/stressed/hopeless sample text each score highest on their own linguistic dimension, bilingual AI chat responses (including trend-aware replies for signed-in users with saved history), the risk-assessment fusion shape, the forgot/reset-password flow (including that it never reveals whether an email is registered, and that a reset token is single-use), and the register/login/me/checkins/mood-checkins/helpful-practices account flow. `backend/conftest.py` points each test run at a throwaway SQLite file so the suite is idempotent - it never touches `backend/mindhx.db`. Run with `cd backend && source .venv/bin/activate && pytest test_main.py -v`.
 
-**Stack:** Next.js 16 / React 19 / TypeScript / Tailwind on the frontend; FastAPI / Pydantic / SQLAlchemy / faster-whisper / PyAV / numpy / httpx on the backend; PostgreSQL (SQLite in local dev) for the optional accounts feature; bcrypt + PyJWT for authentication; Qwen via Alibaba Cloud DashScope (preferred) or OpenRouter (fallback) for text classification; Uplift AI for Urdu speech synthesis.
+**Stack:** Next.js 16 / React 19 / TypeScript / Tailwind on the frontend; FastAPI / Pydantic / SQLAlchemy / PyAV / numpy / httpx on the backend; PostgreSQL (SQLite in local dev) for the optional accounts feature; bcrypt + PyJWT for authentication; OpenAI's hosted Whisper API for transcription; Qwen via Alibaba Cloud DashScope (preferred) or OpenRouter (fallback) for text classification; Uplift AI for Urdu speech synthesis.
 
 ## Run the web app
 
@@ -167,7 +167,7 @@ No further setup is needed to use MindHx anonymously. To try the optional accoun
 docker compose up --build
 ```
 
-The web app runs at `http://localhost:3000`; the API runs at `http://localhost:8000`. A Postgres 16 container is provisioned automatically for the accounts feature (`mindhx-db`, credentials via `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`, default `mindhx`/`mindhx`/`mindhx` — override these for anything beyond local use). Set `JWT_SECRET_KEY` in the environment for anything beyond local use. The first transcription downloads the configured Whisper model into the named Docker volume. Set `WHISPER_MODEL` and `WHISPER_DEVICE` in the environment when needed.
+The web app runs at `http://localhost:3000`; the API runs at `http://localhost:8000`. A Postgres 16 container is provisioned automatically for the accounts feature (`mindhx-db`, credentials via `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`, default `mindhx`/`mindhx`/`mindhx` — override these for anything beyond local use). Set `JWT_SECRET_KEY` in the environment for anything beyond local use. Set `OPENAI_API_KEY` for transcription to work; `OPENAI_STT_MODEL` defaults to `whisper-1`.
 
 ## Important caveats
 

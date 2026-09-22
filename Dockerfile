@@ -5,8 +5,8 @@
 # no separate public backend URL to keep in sync.
 #
 # Debian-slim (glibc) is used throughout, not Alpine, because the backend's
-# faster-whisper (ctranslate2) and psycopg2-binary dependencies ship
-# glibc-only wheels and don't install cleanly against Alpine's musl libc.
+# psycopg2-binary dependency ships glibc-only wheels and doesn't install
+# cleanly against Alpine's musl libc.
 
 FROM node:20-bookworm-slim AS web-deps
 WORKDIR /web

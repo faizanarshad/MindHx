@@ -10,7 +10,6 @@ import secrets
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -909,47 +908,46 @@ def start_session(payload: SessionStartRequest) -> dict:
     }
 
 
-@lru_cache(maxsize=1)
-def _get_whisper_model():
-    """Loads the faster-whisper model once per process and reuses it.
-
-    Constructing WhisperModel is expensive - it downloads the model (on first
-    use) and loads several hundred MB into memory - so building a fresh one
-    on every /transcribe call was both slow enough to time out requests and
-    heavy enough to risk the process being OOM-killed under a memory limit.
-    """
-    from faster_whisper import WhisperModel
-
-    return WhisperModel(
-        os.getenv("WHISPER_MODEL", "small"),
-        device=os.getenv("WHISPER_DEVICE", "cpu"),
-        compute_type="int8",
-    )
-
-
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...), language: str = Form("auto")) -> dict:
-    """Transcribe audio with local faster-whisper using int8 quantization."""
-    try:
-        model = _get_whisper_model()
-    except ImportError as error:
-        raise HTTPException(status_code=503, detail="faster-whisper is not installed") from error
+    """Transcribe audio via OpenAI's hosted Whisper API.
+
+    Previously ran faster-whisper in-process. That's the same Whisper model
+    family, but loading its runtime (ctranslate2 + onnxruntime) got the
+    backend OOM-killed under Railway's memory limit even at the smallest
+    model size - the fixed cost of the runtime itself, not the model
+    weights, was the problem. Sending the audio to a hosted API instead
+    removes that memory cost entirely and keeps the same transcription
+    quality (including Urdu), since it's the same underlying model.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Speech-to-text is not configured (OPENAI_API_KEY missing)")
 
     audio = await file.read()
     if not audio or len(audio) > 25 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Audio must be between 1 byte and 25 MB")
 
-    suffix = Path(file.filename or "recording.webm").suffix or ".webm"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
-        temp_file.write(audio)
-        temp_path = temp_file.name
+    data = {"model": os.getenv("OPENAI_STT_MODEL", "whisper-1"), "response_format": "verbose_json"}
+    if language and language != "auto":
+        data["language"] = language
 
     try:
-        segments, info = model.transcribe(temp_path, language=None if language == "auto" else language)
-        text = " ".join(segment.text.strip() for segment in segments).strip()
-        return {"text": text, "language": info.language, "language_probability": round(info.language_probability, 3)}
-    finally:
-        Path(temp_path).unlink(missing_ok=True)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                data=data,
+                files={"file": (file.filename or "recording.webm", audio, file.content_type or "application/octet-stream")},
+            )
+    except httpx.HTTPError as error:
+        raise HTTPException(status_code=503, detail="Speech-to-text service unavailable") from error
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Speech-to-text request failed")
+
+    result = response.json()
+    return {"text": (result.get("text") or "").strip(), "language": result.get("language"), "language_probability": None}
 
 
 def _decode_audio_mono(av_module, path: str, target_rate: int = 16000) -> tuple[np.ndarray, int]:
