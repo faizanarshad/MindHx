@@ -694,15 +694,14 @@ def _parse_triage_classification(content: str) -> Optional[dict]:
     return result
 
 
-async def analyze_with_qwen(text: str, language: str) -> Optional[dict]:
-    """Classify check-in text with Qwen via Alibaba Cloud DashScope's OpenAI-compatible API."""
-    api_key = os.getenv("DASHSCOPE_API_KEY")
+async def analyze_with_openai(text: str, language: str) -> Optional[dict]:
+    """Classify check-in text with OpenAI's chat completions API."""
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
 
-    base_url = os.getenv("DASHSCOPE_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
     payload = {
-        "model": os.getenv("DASHSCOPE_MODEL", "qwen-plus"),
+        "model": os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
         "temperature": 0,
         "response_format": {"type": "json_object"},
         "messages": [
@@ -713,37 +712,7 @@ async def analyze_with_qwen(text: str, language: str) -> Optional[dict]:
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-    except (httpx.HTTPError, KeyError, TypeError, IndexError):
-        return None
-    return _parse_triage_classification(content)
-
-
-async def analyze_with_openrouter(text: str, language: str) -> Optional[dict]:
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        return None
-
-    payload = {
-        "model": os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system", "content": TRIAGE_CLASSIFIER_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Language: {language}\nText: {text}"},
-        ],
-    }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:3000"),
-        "X-OpenRouter-Title": "MindHx",
-    }
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+            response = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
     except (httpx.HTTPError, KeyError, TypeError, IndexError):
@@ -1113,11 +1082,8 @@ async def analyze_text(payload: TextAnalysisRequest) -> dict:
         "language": payload.language,
         **_linguistic_indicators(linguistic_features),
     }
-    llm_result = await analyze_with_qwen(text, payload.language)
-    provider = "dashscope-qwen" if llm_result else None
-    if not llm_result:
-        llm_result = await analyze_with_openrouter(text, payload.language)
-        provider = "openrouter" if llm_result else None
+    llm_result = await analyze_with_openai(text, payload.language)
+    provider = "openai" if llm_result else None
     return {
         **heuristic_result,
         **(llm_result or {}),
@@ -1194,26 +1160,16 @@ async def compose_chat_reply(
     mood_checkins: list[int],
     helpful_practices: list[str],
 ) -> Optional[dict]:
-    """Composes a grounded, guarded chat reply via Qwen (preferred) or OpenRouter.
+    """Composes a grounded, guarded chat reply via OpenAI's chat completions API.
     Returns None on any failure or unsafe/malformed output, so the caller can
     fall back to the deterministic template response - the chat never goes
     unanswered, it just loses the conversational layer."""
-    api_key = os.getenv("DASHSCOPE_API_KEY")
-    if api_key:
-        provider, model = "dashscope", os.getenv("DASHSCOPE_MODEL", "qwen-plus")
-        base_url = os.getenv("DASHSCOPE_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
-        url = f"{base_url}/chat/completions"
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    else:
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            return None
-        provider, model = "openrouter", os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
-            "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:3000"), "X-OpenRouter-Title": "MindHx",
-        }
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    provider, model = "openai", os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     context_lines = []
     if screening_context:

@@ -316,7 +316,7 @@ def test_compose_chat_reply_rejects_english_output_when_urdu_requested(monkeypat
     instruction must never surface an English reply to an Urdu-selected user -
     compose_chat_reply should discard it so the caller falls back to the
     guaranteed-correct Urdu template instead."""
-    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
     class FakeResponse:
         def raise_for_status(self) -> None:

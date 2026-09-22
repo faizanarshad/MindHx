@@ -68,7 +68,7 @@ Three design commitments follow directly from that objective:
 - A resource library (medication, meditation techniques, therapies, AI info) with individual detail pages for each meditation technique and therapy approach
 - A "Find a professional in Pakistan" directory: verified real institutions per city plus live links to established doctor-directory platforms (oladoc, Marham), rather than a static list that would go stale
 - Full English/Urdu bilingual support across every page, with a header-level language toggle
-- Qwen (via Alibaba Cloud DashScope) as the preferred text-analysis provider, falling back to OpenRouter, then a local heuristic classifier
+- OpenAI as the text-analysis provider, falling back to a local heuristic classifier if unconfigured
 - A `/brand` page documenting the color system
 - Optional accounts (`/register`, `/login`, `/dashboard`) for people who want to save check-in history across visits — bcrypt-hashed passwords, JWT sessions, a PostgreSQL-backed (SQLite in local dev) `users`/`check_ins` schema, and a client-side protected-route wrapper on the dashboard. The core screening flow is entirely unaffected: this is additive, not a gate.
 
@@ -83,7 +83,7 @@ Three design commitments follow directly from that objective:
 - **Calibration work directly changes what MindHx can responsibly claim.** Once labeled outcome data is available, Platt scaling or isotonic regression against a held-out set would let the risk score be reported as an actual probability rather than a relative indicator — a prerequisite for any clinical deployment claim.
 - **A validated Urdu instrument would let MindHx be used as a real screening tool in Urdu-speaking clinical settings**, not just as a bilingual demo — this is the single highest-leverage localization gap remaining.
 - **A real acoustic biomarker vendor would strengthen the acoustic signal from a heuristic proxy to a validated one**, likely the biggest lever on overall score reliability, since text and PHQ-family signals are already backed by validated instruments or real classifier models.
-- **Alibaba Cloud stack depth.** Qwen/DashScope is already integrated for text analysis; further Alibaba-native deployment (Function Compute for the FastAPI service, OSS-backed model caching) is a natural next step for anyone deploying this on that stack. Persistent object storage for user audio was deliberately *not* added, since it would contradict the app's core "nothing is saved" privacy commitment — any future storage decision should stay opt-in and time-boxed, not a default.
+- Persistent object storage for user audio was deliberately *not* added, since it would contradict the app's core "nothing is saved" privacy commitment — any future storage decision should stay opt-in and time-boxed, not a default.
 
 ## Productivity / impact
 
@@ -119,7 +119,7 @@ MindHx is designed to compress a screening step that otherwise requires scheduli
 | `POST /session/start` | Issues an ephemeral session token; nothing is persisted |
 | `POST /transcribe` | Transcription via OpenAI's hosted Whisper API |
 | `POST /analyze-voice` | Heuristic prosodic signal (pause ratio, loudness variability, speaking rate) via PyAV + numpy, plus a derived calm/stress/anger/fatigue/depression-indicator breakdown — pluggable via `VOICE_BIOMARKER_PROVIDER`, only `local` implemented today |
-| `POST /analyze-text` | Sentiment, keyword flags, crisis-language detection, plus an anxiety/stress/depression-indicator breakdown from lexicon and ratio markers (first-person density, absolutist language, worry/pressure/fatigue terms) — Qwen (DashScope) → OpenRouter → local heuristic, in that fallback order |
+| `POST /analyze-text` | Sentiment, keyword flags, crisis-language detection, plus an anxiety/stress/depression-indicator breakdown from lexicon and ratio markers (first-person density, absolutist language, worry/pressure/fatigue terms) — OpenAI, falling back to a local heuristic if unconfigured |
 | `POST /support-resources` | Theme-matched coping strategies and meditation content |
 | `POST /ai/chat` | Bounded, source-grounded chat; safety-gated before any content is returned |
 | `POST /synthesize` | Urdu text-to-speech via Uplift AI |
@@ -138,7 +138,7 @@ MindHx is designed to compress a screening step that otherwise requires scheduli
 
 **Testing:** 26 backend tests (`backend/test_main.py`) covering crisis short-circuiting, theme detection (including a regression test for a fixed keyword-matching bug), the prosodic-signal and voice-tone math independent of PyAV availability, that anxious/stressed/hopeless sample text each score highest on their own linguistic dimension, bilingual AI chat responses (including trend-aware replies for signed-in users with saved history), the risk-assessment fusion shape, the forgot/reset-password flow (including that it never reveals whether an email is registered, and that a reset token is single-use), and the register/login/me/checkins/mood-checkins/helpful-practices account flow. `backend/conftest.py` points each test run at a throwaway SQLite file so the suite is idempotent - it never touches `backend/mindhx.db`. Run with `cd backend && source .venv/bin/activate && pytest test_main.py -v`.
 
-**Stack:** Next.js 16 / React 19 / TypeScript / Tailwind on the frontend; FastAPI / Pydantic / SQLAlchemy / PyAV / numpy / httpx on the backend; PostgreSQL (SQLite in local dev) for the optional accounts feature; bcrypt + PyJWT for authentication; OpenAI's hosted Whisper API for transcription; Qwen via Alibaba Cloud DashScope (preferred) or OpenRouter (fallback) for text classification; Uplift AI for Urdu speech synthesis.
+**Stack:** Next.js 16 / React 19 / TypeScript / Tailwind on the frontend; FastAPI / Pydantic / SQLAlchemy / PyAV / numpy / httpx on the backend; PostgreSQL (SQLite in local dev) for the optional accounts feature; bcrypt + PyJWT for authentication; OpenAI for transcription (hosted Whisper), text classification, and the grounded AI chat; Uplift AI for Urdu speech synthesis.
 
 ## Run the web app
 
