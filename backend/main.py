@@ -4,6 +4,7 @@ models.py) are an optional, separate feature purely for people who choose
 to save their check-in history across visits."""
 
 import json
+import logging
 import os
 import re
 import secrets
@@ -35,6 +36,8 @@ from auth import (
 from database import get_db, init_db
 from mailer import send_email
 from models import CheckIn, HelpfulPractice, MoodCheckIn, PasswordResetToken, User
+
+logger = logging.getLogger("mindhx")
 
 
 @asynccontextmanager
@@ -715,7 +718,11 @@ async def analyze_with_openai(text: str, language: str) -> Optional[dict]:
             response = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
-    except (httpx.HTTPError, KeyError, TypeError, IndexError):
+    except httpx.HTTPStatusError as error:
+        logger.error("OpenAI /analyze-text returned %s: %s", error.response.status_code, error.response.text[:500])
+        return None
+    except (httpx.HTTPError, KeyError, TypeError, IndexError) as error:
+        logger.error("OpenAI /analyze-text request failed: %r", error)
         return None
     return _parse_triage_classification(content)
 
@@ -910,9 +917,11 @@ async def transcribe(file: UploadFile = File(...), language: str = Form("auto"))
                 files={"file": (file.filename or "recording.webm", audio, file.content_type or "application/octet-stream")},
             )
     except httpx.HTTPError as error:
+        logger.error("OpenAI /transcribe request failed: %r", error)
         raise HTTPException(status_code=503, detail="Speech-to-text service unavailable") from error
 
     if response.status_code != 200:
+        logger.error("OpenAI /transcribe returned %s: %s", response.status_code, response.text[:500])
         raise HTTPException(status_code=502, detail="Speech-to-text request failed")
 
     result = response.json()
@@ -1209,7 +1218,11 @@ async def compose_chat_reply(
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
             result = json.loads(content)
-    except (httpx.HTTPError, KeyError, TypeError, IndexError, ValueError):
+    except httpx.HTTPStatusError as error:
+        logger.error("OpenAI /ai/chat returned %s: %s", error.response.status_code, error.response.text[:500])
+        return None
+    except (httpx.HTTPError, KeyError, TypeError, IndexError, ValueError) as error:
+        logger.error("OpenAI /ai/chat request failed: %r", error)
         return None
 
     if result.get("action") not in {"clarify", "respond"}:
