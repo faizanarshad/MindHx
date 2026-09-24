@@ -9,7 +9,8 @@ import { DoodleLeaf, DoodleSpeechBubble, DoodleSun } from "../components/Doodles
 import SiteFooter from "../components/SiteFooter";
 import VoiceEmotionBars, { type VoiceEmotion } from "../components/VoiceEmotionBars";
 import TextMoodBars from "../components/TextMoodBars";
-import { isLoggedIn } from "../lib/auth";
+import { fetchCurrentUser, isLoggedIn } from "../lib/auth";
+import { downloadResultsPdf } from "../lib/resultsPdf";
 
 type Result = {
   risk_score: number;
@@ -44,6 +45,7 @@ type Result = {
 export default function ResultsClient() {
   const router = useRouter();
   const [result, setResult] = useState<Result | null>(null);
+  const [preparedFor, setPreparedFor] = useState<{ name?: string | null; email?: string | null }>({});
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -54,7 +56,15 @@ export default function ResultsClient() {
     if (stored) {
       startTransition(() => setResult(JSON.parse(stored) as Result));
     }
+    fetchCurrentUser().then((user) => {
+      if (user) startTransition(() => setPreparedFor({ name: user.full_name, email: user.email }));
+    });
   }, [router]);
+
+  function handleDownloadPdf() {
+    if (!result) return;
+    downloadResultsPdf(result, preparedFor);
+  }
 
   if (!result) {
     return <><main className="results-page empty-results"><p className="eyebrow">MINDHX / RESULTS</p><h1>Your check-in is not ready yet.</h1><p>Complete the private assessment first, then return here to review your signals.</p><button className="result-primary" onClick={() => router.push("/")}>Back to check-in <span>→</span></button></main><SiteFooter /></>;
@@ -72,7 +82,7 @@ export default function ResultsClient() {
       <DoodleLeaf className="doodle doodle-teal doodle-sway" style={{ top: "50%", left: "1%", width: "26px", height: "auto" }} />
       <SiteHeader right={<span className="results-private"><i /> Private session result</span>} backLabel="Back to check-in" />
       <NatureBanner {...naturePhotos.mountainRange} caption="A clearer picture, from higher ground." priority />
-      <section className="results-hero"><div><p className="eyebrow">YOUR MINDHX CHECK-IN</p><h1>A clearer picture<br /><em>to take forward.</em></h1><p className="results-lede">These signals are a starting point for a conversation, not a diagnosis. You remain in control of what happens next.</p></div><div className="result-score-card"><p className="card-kicker">COMBINED SIGNAL</p><div className="result-score-ring"><strong>{score}</strong><span>/ 100</span></div><b className={`result-band ${result.band}`}>{result.band.replaceAll("_", " ")}</b><small>{result.routing_decision.replaceAll("_", " ")}</small></div></section>
+      <section className="results-hero"><div><p className="eyebrow">YOUR MINDHX CHECK-IN</p><h1>A clearer picture<br /><em>to take forward.</em></h1><p className="results-lede">These signals are a starting point for a conversation, not a diagnosis. You remain in control of what happens next.</p><button className="result-primary" type="button" onClick={handleDownloadPdf}>Download PDF <span>↓</span></button><p className="results-pdf-hint">Bring this to a doctor or therapist if it&apos;s helpful - generated on your device, never stored on our servers.</p></div><div className="result-score-card"><p className="card-kicker">COMBINED SIGNAL</p><div className="result-score-ring"><strong>{score}</strong><span>/ 100</span></div><b className={`result-band ${result.band}`}>{result.band.replaceAll("_", " ")}</b><small>{result.routing_decision.replaceAll("_", " ")}</small></div></section>
 
       <section className="result-section"><div className="result-section-heading"><p className="eyebrow">01 / THE SIGNALS</p><h2>What contributed to this picture</h2><p>Each measure is shown separately so the combined estimate stays explainable.</p></div><div className="result-signal-grid">
         <Signal name="PHQ-9" score={components?.phq9.score ?? 0} max={27} band={components?.phq9.band ?? "not available"} color="orange" />
