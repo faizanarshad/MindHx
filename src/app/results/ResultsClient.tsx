@@ -42,9 +42,19 @@ type Result = {
   };
 };
 
+type CheckInDetail = {
+  language: string;
+  transcript: string;
+  typedText: string;
+  phq9: { question: string; answer: string | null }[];
+  gad7: { question: string; answer: string | null }[];
+  k10: { question: string; answer: string | null }[];
+};
+
 export default function ResultsClient() {
   const router = useRouter();
   const [result, setResult] = useState<Result | null>(null);
+  const [detail, setDetail] = useState<CheckInDetail | null>(null);
   const [preparedFor, setPreparedFor] = useState<{ name?: string | null; email?: string | null }>({});
 
   useEffect(() => {
@@ -56,6 +66,10 @@ export default function ResultsClient() {
     if (stored) {
       startTransition(() => setResult(JSON.parse(stored) as Result));
     }
+    const storedDetail = sessionStorage.getItem("mindhx:last-checkin-detail");
+    if (storedDetail) {
+      startTransition(() => setDetail(JSON.parse(storedDetail) as CheckInDetail));
+    }
     fetchCurrentUser().then((user) => {
       if (user) startTransition(() => setPreparedFor({ name: user.full_name, email: user.email }));
     });
@@ -63,7 +77,7 @@ export default function ResultsClient() {
 
   function handleDownloadPdf() {
     if (!result) return;
-    downloadResultsPdf(result, preparedFor);
+    downloadResultsPdf(result, preparedFor, detail ?? undefined);
   }
 
   if (!result) {
