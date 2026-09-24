@@ -129,6 +129,87 @@ export function downloadResultsPdf(result: ResultForPdf, preparedFor: PreparedFo
     spacer(2);
   }
 
+  type SignalCard = {
+    icon: string;
+    iconColor: [number, number, number];
+    iconBg: [number, number, number];
+    label: string;
+    value: string;
+    sub: string;
+    barFraction?: number;
+    barColor?: [number, number, number];
+  };
+
+  // Draws the same "flash card" layout as the results page's signal grid
+  // (icon badge, big score, mini progress bar) as vector shapes, matching
+  // its colors - not the plain bar list further down, which covers the
+  // finer-grained breakdowns (word-choice, voice tone, attribution) that
+  // are bars on the web page too.
+  function signalCardsGrid(title: string, cards: SignalCard[]): void {
+    if (cards.length === 0) return;
+    subheading(title);
+    const cols = 2;
+    const gap = 5;
+    const cardWidth = (CONTENT_WIDTH - gap * (cols - 1)) / cols;
+    const cardHeight = 32;
+    const padding = 4;
+    const badgeSize = 8;
+
+    for (let index = 0; index < cards.length; index++) {
+      const col = index % cols;
+      if (col === 0) ensureSpace(cardHeight + gap);
+      const cardX = MARGIN + col * (cardWidth + gap);
+      const cardTop = y;
+      const card = cards[index];
+
+      doc.setDrawColor(233, 224, 204);
+      doc.setLineWidth(0.2);
+      doc.roundedRect(cardX, cardTop, cardWidth, cardHeight, 2, 2, "S");
+
+      doc.setFillColor(...card.iconBg);
+      doc.roundedRect(cardX + padding, cardTop + padding, badgeSize, badgeSize, 1.5, 1.5, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(...card.iconColor);
+      doc.text(card.icon, cardX + padding + badgeSize / 2, cardTop + padding + badgeSize / 2 + 1.4, { align: "center" });
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.setTextColor(110, 124, 140);
+      doc.text(card.label, cardX + padding + badgeSize + 3, cardTop + padding + badgeSize / 2 + 1.2);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12.5);
+      doc.setTextColor(36, 52, 74);
+      doc.text(card.value, cardX + padding, cardTop + padding + badgeSize + 7);
+
+      let subBaseline = cardTop + padding + badgeSize + 11.5;
+      if (card.barFraction != null) {
+        const barY = cardTop + padding + badgeSize + 9;
+        const barWidth = cardWidth - padding * 2;
+        doc.setFillColor(233, 224, 204);
+        doc.rect(cardX + padding, barY, barWidth, 1.4, "F");
+        const clamped = Math.max(0, Math.min(1, card.barFraction));
+        if (clamped > 0) {
+          doc.setFillColor(...(card.barColor ?? [233, 130, 50]));
+          doc.rect(cardX + padding, barY, Math.max(1, barWidth * clamped), 1.4, "F");
+        }
+        subBaseline = barY + 5;
+      }
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(110, 124, 140);
+      const subLines: string[] = doc.splitTextToSize(card.sub, cardWidth - padding * 2);
+      doc.text(subLines.slice(0, 2), cardX + padding, subBaseline);
+
+      if (col === cols - 1 || index === cards.length - 1) {
+        y = cardTop + cardHeight + gap;
+      }
+    }
+    spacer(2);
+  }
+
   function qaItem(index: number, question: string, answer: string | null): void {
     ensureSpace(6);
     doc.setFont("helvetica", "bold");
@@ -200,12 +281,34 @@ export function downloadResultsPdf(result: ResultForPdf, preparedFor: PreparedFo
     keyValueRow("Voice signal", components.voice.available ? `${Math.round((components.voice.signal ?? 0) * 100)}%` : "Not available");
     spacer(3);
 
-    barGroup("Signal levels (graph)", [
-      { label: "PHQ-9 (depression)", fraction: components.phq9.score / 27, valueLabel: `${components.phq9.score}/27` },
-      { label: "GAD-7 (anxiety)", fraction: components.gad7.score / 21, valueLabel: `${components.gad7.score}/21` },
-      { label: "K10 (distress)", fraction: components.k10.score / 50, valueLabel: `${components.k10.score}/50` },
-      { label: "Text signal", fraction: components.text.signal, valueLabel: `${Math.round(components.text.signal * 100)}%` },
-      { label: "Voice signal", fraction: components.voice.signal ?? 0, valueLabel: components.voice.available ? `${Math.round((components.voice.signal ?? 0) * 100)}%` : "N/A" },
+    signalCardsGrid("Signal levels", [
+      {
+        icon: "9", iconColor: [233, 130, 50], iconBg: [255, 240, 227], label: "PHQ-9",
+        value: `${components.phq9.score} / 27`, sub: components.phq9.band.replaceAll("_", " "),
+        barFraction: components.phq9.score / 27, barColor: [233, 130, 50],
+      },
+      {
+        // "G", not the web's sine-wave glyph - jsPDF's built-in fonts use
+        // WinAnsiEncoding, which (like the arrow character before) doesn't
+        // cover that symbol either.
+        icon: "G", iconColor: [44, 111, 186], iconBg: [229, 240, 251], label: "GAD-7",
+        value: `${components.gad7.score} / 21`, sub: components.gad7.band.replaceAll("_", " "),
+        barFraction: components.gad7.score / 21, barColor: [44, 111, 186],
+      },
+      {
+        icon: "K", iconColor: [47, 143, 110], iconBg: [227, 246, 238], label: "K10",
+        value: `${components.k10.score} / 50`, sub: components.k10.band.replaceAll("_", " "),
+        barFraction: components.k10.score / 50, barColor: [47, 143, 110],
+      },
+      {
+        icon: "Aa", iconColor: [44, 111, 186], iconBg: [229, 240, 251], label: "WORDS",
+        value: components.text.sentiment, sub: `${Math.round(components.text.signal * 100)}% text signal`,
+      },
+      {
+        icon: "V", iconColor: [47, 143, 110], iconBg: [227, 246, 238], label: "VOICE",
+        value: components.voice.available ? `${Math.round((components.voice.signal ?? 0) * 100)}% signal` : "Not available",
+        sub: components.voice.note,
+      },
     ]);
 
     if (components.text.anxiety_level != null && components.text.stress_level != null && components.text.depression_indicator != null) {
