@@ -59,6 +59,7 @@ export type CurrentUser = {
   marital_status: string | null;
   life_context: string | null;
   preferred_language: string | null;
+  avatar_data_url: string | null;
   created_at: string;
 };
 export type CheckInRecord = { id: string; risk_score: number; band: string; routing_decision: string; themes: string[]; created_at: string };
@@ -157,6 +158,37 @@ export async function fetchCurrentUser(): Promise<CurrentUser | null> {
   } catch {
     return null;
   }
+}
+
+export type ProfileUpdate = Partial<{
+  fullName: string;
+  phone: string;
+  ageRange: string;
+  gender: string;
+  maritalStatus: string;
+  lifeContext: string;
+  preferredLanguage: string;
+  avatarDataUrl: string;
+}>;
+
+export async function updateProfile(update: ProfileUpdate): Promise<CurrentUser> {
+  const body: Record<string, string> = {};
+  if (update.fullName !== undefined) body.full_name = update.fullName;
+  if (update.phone !== undefined) body.phone = update.phone;
+  if (update.ageRange !== undefined) body.age_range = update.ageRange;
+  if (update.gender !== undefined) body.gender = update.gender;
+  if (update.maritalStatus !== undefined) body.marital_status = update.maritalStatus;
+  if (update.lifeContext !== undefined) body.life_context = update.lifeContext;
+  if (update.preferredLanguage !== undefined) body.preferred_language = update.preferredLanguage;
+  if (update.avatarDataUrl !== undefined) body.avatar_data_url = update.avatarDataUrl;
+
+  const response = await authFetch("/auth/me", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  return await response.json() as CurrentUser;
 }
 
 export async function fetchCheckIns(): Promise<CheckInRecord[]> {

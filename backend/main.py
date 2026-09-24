@@ -236,6 +236,21 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=72)
 
 
+class ProfileUpdateRequest(BaseModel):
+    full_name: Optional[str] = Field(default=None, max_length=120)
+    phone: Optional[str] = Field(default=None, max_length=30)
+    age_range: Optional[str] = Field(default=None, max_length=20)
+    gender: Optional[str] = Field(default=None, max_length=40)
+    marital_status: Optional[str] = Field(default=None, max_length=40)
+    life_context: Optional[str] = Field(default=None, max_length=40)
+    preferred_language: Optional[str] = Field(default=None, max_length=10)
+    # A data: URL (e.g. "data:image/jpeg;base64,..."). The client resizes to
+    # ~256px before sending; this cap (roughly 400KB of base64, ~300KB of
+    # actual image data) is a server-side backstop against something much
+    # larger arriving from a non-standard client, not the primary control.
+    avatar_data_url: Optional[str] = Field(default=None, max_length=400_000)
+
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
@@ -743,6 +758,7 @@ def _serialize_user(user: User) -> dict:
         "marital_status": user.marital_status,
         "life_context": user.life_context,
         "preferred_language": user.preferred_language,
+        "avatar_data_url": user.avatar_data_url,
         "created_at": user.created_at.isoformat(),
     }
 
@@ -850,6 +866,18 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
 
 @app.get("/auth/me")
 def read_current_user(current_user: User = Depends(get_current_user)) -> dict:
+    return _serialize_user(current_user)
+
+
+@app.put("/auth/me")
+def update_current_user(payload: ProfileUpdateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Partial update: only fields present in the request body are changed
+    (model_dump(exclude_unset=True)), so e.g. uploading just a new avatar
+    never touches name/phone/etc, and vice versa."""
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(current_user, field, value)
+    db.commit()
+    db.refresh(current_user)
     return _serialize_user(current_user)
 
 

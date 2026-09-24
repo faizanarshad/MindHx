@@ -36,6 +36,30 @@ def test_register_login_and_read_me() -> None:
     assert unauthenticated_response.status_code == 401
 
 
+def test_update_profile_is_partial_and_requires_auth() -> None:
+    token = client.post("/auth/register", json={"email": "profile@example.com", "password": "correct-horse-battery"}).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    unauthenticated_response = client.put("/auth/me", json={"full_name": "Someone"})
+    assert unauthenticated_response.status_code == 401
+
+    name_response = client.put("/auth/me", json={"full_name": "Riya Kapoor", "avatar_data_url": "data:image/jpeg;base64,AAAA"}, headers=headers)
+    assert name_response.status_code == 200
+    body = name_response.json()
+    assert body["full_name"] == "Riya Kapoor"
+    assert body["avatar_data_url"] == "data:image/jpeg;base64,AAAA"
+
+    # A second update that only touches phone must not clear full_name or
+    # avatar_data_url set by the previous request - only fields present in
+    # this request body should change.
+    phone_only_response = client.put("/auth/me", json={"phone": "+92-300-1234567"}, headers=headers)
+    assert phone_only_response.status_code == 200
+    body = phone_only_response.json()
+    assert body["phone"] == "+92-300-1234567"
+    assert body["full_name"] == "Riya Kapoor"
+    assert body["avatar_data_url"] == "data:image/jpeg;base64,AAAA"
+
+
 def test_forgot_password_does_not_reveal_whether_an_email_is_registered(monkeypatch) -> None:
     sent_emails = []
     monkeypatch.setattr(main, "send_email", lambda **kwargs: sent_emails.append(kwargs))

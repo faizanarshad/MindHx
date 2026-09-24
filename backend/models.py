@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -39,6 +39,12 @@ class User(Base):
     marital_status: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     life_context: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     preferred_language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    # A small (client-resized, ~256px) image as a data: URL, stored inline
+    # rather than in object storage - simplest option given no external
+    # storage service is configured, and avatars are small enough that this
+    # doesn't meaningfully bloat the row. Text, not String, since base64
+    # image data comfortably exceeds a typical varchar length.
+    avatar_data_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     check_ins: Mapped[list["CheckIn"]] = relationship(back_populates="user", cascade="all, delete-orphan")

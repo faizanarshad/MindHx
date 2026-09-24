@@ -49,6 +49,7 @@ def _ensure_user_columns() -> None:
         "marital_status": "VARCHAR(40)",
         "life_context": "VARCHAR(40)",
         "preferred_language": "VARCHAR(10)",
+        "avatar_data_url": "TEXT",
     }
     for column, column_type in new_columns.items():
         try:
