@@ -392,12 +392,21 @@ export default function HomeClient() {
       const textAnalysis = await textResponse.json();
       const phq9Result = await phqResponse.json();
       const isCrisis = Boolean(phq9Result.item_9_crisis || textAnalysis.crisis_language);
-      if (!sessionToken) {
+      // /risk-assess's only actual requirement from the session context is
+      // profile.ageRange (the backend's Profile model requires it) - it
+      // never receives sessionToken at all, that's a local UI flag only
+      // (set by explicitly clicking "Continue privately" in the profile
+      // modal). Gating on sessionToken instead of the real requirement
+      // meant picking an age range and closing the modal any other way, or
+      // a transient /session/start hiccup, could still bounce a crisis
+      // check-in to the bare /emergency page for no real reason. Check the
+      // actual requirement instead.
+      if (!profile.ageRange) {
         if (isCrisis) {
-          // /risk-assess requires a session profile (age range) we don't
-          // have yet - rather than block on setting it up, get straight to
-          // emergency info. It still won't have the full results/PDF, but
-          // getting help right now matters more than completeness.
+          // Age range truly isn't set - can't call /risk-assess at all yet.
+          // Rather than block on setting it up, get straight to emergency
+          // info. It still won't have the full results/PDF, but getting
+          // help right now matters more than completeness.
           sessionStorage.setItem("mindhx:crisis-context", JSON.stringify({ source: phq9Result.item_9_crisis ? "phq9_item9" : "text_crisis_language", language: language === "اردو" ? "ur" : "en" }));
           router.push("/emergency");
           return;
