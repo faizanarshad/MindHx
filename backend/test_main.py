@@ -357,6 +357,47 @@ def test_compose_chat_reply_rejects_english_output_when_urdu_requested(monkeypat
     assert result is None
 
 
+def test_analyze_text_llm_cannot_suppress_a_heuristic_crisis_flag(monkeypatch) -> None:
+    """Defense in depth: /analyze-text merges the deterministic keyword check's
+    result with the LLM classifier's, spreading the LLM's fields on top. If the
+    LLM disagrees and returns crisis_language: false for text the keyword
+    check already flagged as crisis, that must never silently overwrite the
+    heuristic's true - crisis_language gates real safety behavior (routing to
+    /emergency, /risk-assess's crisis band, /ai/chat's escalation gate)."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": (
+                '{"sentiment": "negative", "keyword_flags": [], "crisis_language": false, '
+                '"anxiety_level": 0.5, "stress_level": 0.5, "depression_indicator": 0.5}'
+            )}}]}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, *args) -> bool:
+            return False
+
+        async def post(self, *args, **kwargs) -> FakeResponse:
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.post("/analyze-text", json={"text": "I want to kill myself", "language": "en"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "openai"
+    assert body["crisis_language"] is True
+
+
 def test_mood_checkins_and_helpful_practices_require_auth_and_round_trip() -> None:
     unauthenticated = client.post("/mood-checkins", json={"mood": 3})
     assert unauthenticated.status_code == 401

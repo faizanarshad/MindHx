@@ -1093,13 +1093,21 @@ async def analyze_text(payload: TextAnalysisRequest) -> dict:
     }
     llm_result = await analyze_with_openai(text, payload.language)
     provider = "openai" if llm_result else None
-    return {
+    merged = {
         **heuristic_result,
         **(llm_result or {}),
         "language": payload.language,
         "provider": provider or "heuristic",
         "linguistic_features": linguistic_features,
     }
+    # Never let the LLM's classification suppress a crisis flag the
+    # deterministic keyword check already caught - the spread above would
+    # otherwise let a false "crisis_language": false from the LLM silently
+    # overwrite the heuristic's true, and this value gates whether a crisis
+    # is shown/handled at all (see /risk-assess and /ai/chat). The LLM can
+    # still ADD a detection the heuristic missed; it just can't remove one.
+    merged["crisis_language"] = bool(heuristic_result["crisis_language"] or merged.get("crisis_language"))
+    return merged
 
 
 @app.post("/support-resources")
