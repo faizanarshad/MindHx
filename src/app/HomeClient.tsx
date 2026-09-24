@@ -391,17 +391,30 @@ export default function HomeClient() {
       if (!textResponse.ok || !phqResponse.ok) throw new Error("MindHx assessment unavailable");
       const textAnalysis = await textResponse.json();
       const phq9Result = await phqResponse.json();
-      if (phq9Result.item_9_crisis || textAnalysis.crisis_language) {
-        sessionStorage.setItem("mindhx:crisis-context", JSON.stringify({ source: phq9Result.item_9_crisis ? "phq9_item9" : "text_crisis_language", language: language === "اردو" ? "ur" : "en" }));
-        router.push("/emergency");
-        return;
-      }
+      const isCrisis = Boolean(phq9Result.item_9_crisis || textAnalysis.crisis_language);
       if (!sessionToken) {
+        if (isCrisis) {
+          // /risk-assess requires a session profile (age range) we don't
+          // have yet - rather than block on setting it up, get straight to
+          // emergency info. It still won't have the full results/PDF, but
+          // getting help right now matters more than completeness.
+          sessionStorage.setItem("mindhx:crisis-context", JSON.stringify({ source: phq9Result.item_9_crisis ? "phq9_item9" : "text_crisis_language", language: language === "اردو" ? "ur" : "en" }));
+          router.push("/emergency");
+          return;
+        }
         setAssessmentError(language === "اردو" ? "پہلے نجی سیشن کا سیاق مکمل کریں۔" : "Set your private session context before starting the assessment.");
         setShowProfile(true);
         return;
       }
-      if (!isScreeningComplete) {
+      // A crisis signal still goes through the full risk-assessment below -
+      // the backend already handles it (returns band: "crisis" with the
+      // full component breakdown and support plan), so the results page can
+      // show the emergency banner alongside the complete results and PDF,
+      // rather than jumping straight to a bare emergency page with nothing
+      // else. sessionStorage.setItem("mindhx:crisis-context", ...) is not
+      // needed here: ResultsClient reads the crisis flag straight off the
+      // returned result.
+      if (!isCrisis && !isScreeningComplete) {
         setAssessmentError(language === "اردو" ? "خطرے کے مکمل جائزے کے لیے GAD-7 اور K10 بھی مکمل کریں۔" : "Complete GAD-7 and K10 before the combined risk assessment.");
         return;
       }
