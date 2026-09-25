@@ -260,6 +260,11 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=72)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=72)
+    new_password: str = Field(min_length=8, max_length=72)
+
+
 class CheckInCreateRequest(BaseModel):
     risk_score: float = Field(ge=0, le=1)
     band: str = Field(max_length=20)
@@ -879,6 +884,18 @@ def update_current_user(payload: ProfileUpdateRequest, current_user: User = Depe
     db.commit()
     db.refresh(current_user)
     return _serialize_user(current_user)
+
+
+@app.post("/auth/change-password")
+def change_password(payload: ChangePasswordRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Password change for a signed-in user, in place of the email-link
+    reset flow (see /auth/forgot-password) - requires the current password
+    so it can't be used by someone who's merely stolen a live session."""
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    current_user.hashed_password = hash_password(payload.new_password)
+    db.commit()
+    return {"message": "Your password has been updated."}
 
 
 @app.post("/checkins", status_code=201)

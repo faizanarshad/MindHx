@@ -60,6 +60,30 @@ def test_update_profile_is_partial_and_requires_auth() -> None:
     assert body["avatar_data_url"] == "data:image/jpeg;base64,AAAA"
 
 
+def test_change_password_requires_current_password_and_then_signs_in_with_new_one() -> None:
+    token = client.post("/auth/register", json={"email": "changepw@example.com", "password": "correct-horse-battery"}).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    unauthenticated_response = client.post("/auth/change-password", json={"current_password": "correct-horse-battery", "new_password": "new-password-123"})
+    assert unauthenticated_response.status_code == 401
+
+    wrong_current_response = client.post("/auth/change-password", json={"current_password": "wrong-password", "new_password": "new-password-123"}, headers=headers)
+    assert wrong_current_response.status_code == 401
+
+    # The old password must still work - a rejected attempt shouldn't have changed anything.
+    still_old_password_response = client.post("/auth/login", json={"email": "changepw@example.com", "password": "correct-horse-battery"})
+    assert still_old_password_response.status_code == 200
+
+    change_response = client.post("/auth/change-password", json={"current_password": "correct-horse-battery", "new_password": "new-password-123"}, headers=headers)
+    assert change_response.status_code == 200
+
+    old_password_now_fails = client.post("/auth/login", json={"email": "changepw@example.com", "password": "correct-horse-battery"})
+    assert old_password_now_fails.status_code == 401
+
+    new_password_works = client.post("/auth/login", json={"email": "changepw@example.com", "password": "new-password-123"})
+    assert new_password_works.status_code == 200
+
+
 def test_forgot_password_does_not_reveal_whether_an_email_is_registered(monkeypatch) -> None:
     sent_emails = []
     monkeypatch.setattr(main, "send_email", lambda **kwargs: sent_emails.append(kwargs))

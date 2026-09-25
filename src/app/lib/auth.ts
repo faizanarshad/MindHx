@@ -191,6 +191,17 @@ export async function updateProfile(update: ProfileUpdate): Promise<CurrentUser>
   return await response.json() as CurrentUser;
 }
 
+export async function changePassword(currentPassword: string, newPassword: string): Promise<string> {
+  const response = await authFetch("/auth/change-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  const result = await response.json() as { message: string };
+  return result.message;
+}
+
 export async function fetchCheckIns(): Promise<CheckInRecord[]> {
   const response = await authFetch("/checkins");
   if (!response.ok) throw new Error(await parseErrorDetail(response));

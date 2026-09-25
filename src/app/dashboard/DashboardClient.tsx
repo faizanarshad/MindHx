@@ -8,7 +8,7 @@ import SiteHeader from "../components/SiteHeader";
 import NatureBanner from "../components/NatureBanner";
 import { naturePhotos } from "../components/naturePhotos";
 import SiteFooter from "../components/SiteFooter";
-import { fetchCheckIns, logout, updateProfile, type CheckInRecord, type CurrentUser } from "../lib/auth";
+import { changePassword, fetchCheckIns, logout, updateProfile, type CheckInRecord, type CurrentUser } from "../lib/auth";
 import { resizeImageToDataUrl } from "../lib/resizeImage";
 
 const BAND_LABEL: Record<string, string> = { low: "Low", watch: "Watch", elevated: "Elevated", crisis: "Crisis" };
@@ -24,6 +24,7 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
   const [error, setError] = useState("");
   const [avatarError, setAvatarError] = useState("");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   useEffect(() => {
     fetchCheckIns()
@@ -79,15 +80,15 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
             {uploadingAvatar ? "Uploading…" : "Change photo"}
             <input type="file" accept="image/*" onChange={handleAvatarChange} disabled={uploadingAvatar} />
           </label>
+          <div className="profile-avatar-actions">
+            <button onClick={() => setShowChangePassword(true)} type="button">Change password</button>
+            <button onClick={handleSignOut} type="button">Sign out</button>
+          </div>
         </div>
         <div className="profile-info">
           <h2>{displayName}</h2>
           <p>{user.email}</p>
           {avatarError && <p className="profile-avatar-error">{avatarError}</p>}
-          <div className="profile-actions">
-            <Link href="/forgot-password">Reset password</Link>
-            <button onClick={handleSignOut} type="button">Sign out</button>
-          </div>
         </div>
       </section>
 
@@ -120,6 +121,70 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
       )}
     </main>
     <SiteFooter />
+    {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
     </>
+  );
+}
+
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+    if (newPassword.length < 8) {
+      setError("New password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("New passwords don't match.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const message = await changePassword(currentPassword, newPassword);
+      setSuccess(message);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change your password.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(event) => event.stopPropagation()}>
+        <button className="close" onClick={onClose} aria-label="Close" type="button">×</button>
+        <p className="eyebrow">ACCOUNT</p>
+        <h2>Change password</h2>
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <label>
+            <span>Current password</span>
+            <input type="password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" />
+          </label>
+          <label>
+            <span>New password (min. 8 characters)</span>
+            <input type="password" required minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" />
+          </label>
+          <label>
+            <span>Confirm new password</span>
+            <input type="password" required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" />
+          </label>
+          {error && <p className="assessment-error auth-error">{error}</p>}
+          {success && <p className="profile-avatar-success">{success}</p>}
+          <button className="check-in-button" type="submit" disabled={loading}>{loading ? "Changing…" : "Change password"} <span>→</span></button>
+        </form>
+        <p className="profile-modal-auth">Forgot your current password instead? <Link href="/forgot-password">Reset it by email</Link>.</p>
+      </div>
+    </div>
   );
 }
