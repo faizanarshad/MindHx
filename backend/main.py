@@ -894,21 +894,27 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
     db.commit()
 
     reset_link = f"{WEB_ORIGIN}/reset-password?token={raw_token}"
-    send_email(
-        to=user.email,
-        subject="Reset your MindHx password",
-        html_body=(
-            f"<p>Someone requested a password reset for your MindHx account.</p>"
-            f"<p><a href=\"{reset_link}\">Reset your password</a></p>"
-            f"<p>This link expires in {PASSWORD_RESET_EXPIRE_MINUTES} minutes. "
-            f"If you didn't request this, you can safely ignore this email.</p>"
-        ),
-        text_body=(
-            f"Reset your MindHx password: {reset_link}\n\n"
-            f"This link expires in {PASSWORD_RESET_EXPIRE_MINUTES} minutes. "
-            f"If you didn't request this, you can safely ignore this email."
-        ),
-    )
+    try:
+        send_email(
+            to=user.email,
+            subject="Reset your MindHx password",
+            html_body=(
+                f"<p>Someone requested a password reset for your MindHx account.</p>"
+                f"<p><a href=\"{reset_link}\">Reset your password</a></p>"
+                f"<p>This link expires in {PASSWORD_RESET_EXPIRE_MINUTES} minutes. "
+                f"If you didn't request this, you can safely ignore this email.</p>"
+            ),
+            text_body=(
+                f"Reset your MindHx password: {reset_link}\n\n"
+                f"This link expires in {PASSWORD_RESET_EXPIRE_MINUTES} minutes. "
+                f"If you didn't request this, you can safely ignore this email."
+            ),
+        )
+    except Exception as error:  # smtplib raises several distinct exception types (OSError, SMTPException, ...) - any of them means the reset token still exists but the email didn't go out.
+        logger.error("Password reset email to %s failed: %r", user.email, error)
+    # Same generic response either way, on purpose: an SMTP failure must not
+    # reveal to the caller whether the email address is actually registered
+    # (that's the whole point of returning this before checking - see above).
     return generic_response
 
 

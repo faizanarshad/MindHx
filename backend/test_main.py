@@ -164,6 +164,23 @@ def test_forgot_password_does_not_reveal_whether_an_email_is_registered(monkeypa
     assert sent_emails[0]["to"] == "reset-user@example.com"
 
 
+def test_forgot_password_survives_a_broken_smtp_configuration(monkeypatch) -> None:
+    """send_email() has no error handling of its own (smtplib raises on a bad
+    host/port/credentials) - the endpoint must catch that itself, log it, and
+    still return its normal 200/generic response instead of a 500, since the
+    reset token was already committed before send_email() is even called."""
+    def raise_smtp_error(**kwargs) -> None:
+        raise OSError("Could not connect to SMTP host")
+
+    monkeypatch.setattr(main, "send_email", raise_smtp_error)
+
+    client.post("/auth/register", json={"email": "broken-smtp@example.com", "password": "correct-horse-battery"})
+    response = client.post("/auth/forgot-password", json={"email": "broken-smtp@example.com"})
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "If an account exists for that email, we've sent a link to reset the password."
+
+
 def test_reset_password_updates_password_and_single_use_token(monkeypatch) -> None:
     sent_emails = []
     monkeypatch.setattr(main, "send_email", lambda **kwargs: sent_emails.append(kwargs))
