@@ -129,7 +129,27 @@ class Resource(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     summary: Mapped[str] = mapped_column(String(400), default="")
     body: Mapped[str] = mapped_column(Text, default="")
+    # Client-resized image as a data: URL, same inline-storage approach as
+    # User.avatar_data_url - no object storage service is configured.
+    image_data_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     published: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_by: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
+class PageView(Base):
+    """One row per page load, for the admin analytics dashboard's site-visit
+    counts. Deliberately minimal: just the path and a timestamp - no IP
+    address, user agent, referrer, cookie, or session identifier of any
+    kind, so this can never be used to reconstruct an individual visitor's
+    path through the site. That's a real constraint on what "site visits"
+    can mean here, not an oversight: this app already goes out of its way
+    (see CheckIn's docstring) to keep what it collects to the minimum that's
+    actually useful, and a mental-health app is a bad place to add
+    fine-grained visitor tracking as a side effect of an admin dashboard."""
+    __tablename__ = "page_views"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    path: Mapped[str] = mapped_column(String(300), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)

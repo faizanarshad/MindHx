@@ -13,6 +13,10 @@ export type AdminAnalytics = {
   total_checkins: number;
   checkins_7d: number;
   checkins_30d: number;
+  total_pageviews: number;
+  pageviews_7d: number;
+  pageviews_30d: number;
+  top_pages: { path: string; count: number }[];
   band_counts: Record<string, number>;
   top_themes: { theme: string; count: number }[];
 };
@@ -21,6 +25,21 @@ export async function fetchAdminAnalytics(): Promise<AdminAnalytics> {
   const response = await authFetch("/admin/analytics");
   if (!response.ok) throw new Error(await parseErrorDetail(response));
   return await response.json() as AdminAnalytics;
+}
+
+export type AdminUserSummary = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  is_admin: boolean;
+  checkin_count: number;
+  created_at: string;
+};
+
+export async function fetchAdminUsers(): Promise<AdminUserSummary[]> {
+  const response = await authFetch("/admin/users");
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  return await response.json() as AdminUserSummary[];
 }
 
 export type ResourceType = "meditation" | "therapy" | "medication" | "general";
@@ -32,6 +51,7 @@ export type ResourceRecord = {
   title: string;
   summary: string;
   body: string;
+  image_data_url: string | null;
   published: boolean;
   created_at: string;
   updated_at: string;
@@ -43,6 +63,7 @@ export type ResourceInput = {
   title: string;
   summary?: string;
   body?: string;
+  imageDataUrl?: string | null;
   published?: boolean;
 };
 
@@ -76,6 +97,7 @@ export async function createResource(input: ResourceInput): Promise<ResourceReco
       title: input.title,
       summary: input.summary ?? "",
       body: input.body ?? "",
+      image_data_url: input.imageDataUrl ?? null,
       published: input.published ?? true,
     }),
   });
@@ -90,6 +112,7 @@ export async function updateResource(id: string, update: Partial<ResourceInput>)
   if (update.title !== undefined) body.title = update.title;
   if (update.summary !== undefined) body.summary = update.summary;
   if (update.body !== undefined) body.body = update.body;
+  if (update.imageDataUrl !== undefined) body.image_data_url = update.imageDataUrl;
   if (update.published !== undefined) body.published = update.published;
 
   const response = await authFetch(`/admin/resources/${id}`, {

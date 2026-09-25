@@ -108,11 +108,15 @@ def test_admin_bootstrap_via_admin_emails_env_and_resource_crud(monkeypatch) -> 
 
     create_response = client.post(
         "/admin/resources",
-        json={"resource_type": "meditation", "slug": "test-breathing", "title": "Test breathing exercise", "summary": "A short summary.", "body": "Full body text.", "published": True},
+        json={
+            "resource_type": "meditation", "slug": "test-breathing", "title": "Test breathing exercise", "summary": "A short summary.",
+            "body": "Full body text.", "image_data_url": "data:image/jpeg;base64,AAAA", "published": True,
+        },
         headers=admin_headers,
     )
     assert create_response.status_code == 201
     resource_id = create_response.json()["id"]
+    assert create_response.json()["image_data_url"] == "data:image/jpeg;base64,AAAA"
 
     forbidden_create = client.post("/admin/resources", json={"resource_type": "meditation", "slug": "should-fail", "title": "x"}, headers=regular_headers)
     assert forbidden_create.status_code == 403
@@ -146,6 +150,50 @@ def test_admin_bootstrap_via_admin_emails_env_and_resource_crud(monkeypatch) -> 
     assert delete_response.status_code == 204
     admin_list_after_delete = client.get("/admin/resources", headers=admin_headers)
     assert not any(resource["id"] == resource_id for resource in admin_list_after_delete.json())
+
+
+def test_admin_users_list_shows_checkin_counts_and_requires_admin(monkeypatch) -> None:
+    monkeypatch.setattr(main, "ADMIN_EMAILS", {"users-admin@example.com"})
+
+    admin_token = client.post("/auth/register", json={"email": "users-admin@example.com", "password": "correct-horse-battery"}).json()["access_token"]
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    member_token = client.post("/auth/register", json={"email": "users-member@example.com", "password": "correct-horse-battery", "full_name": "Member Person"}).json()["access_token"]
+    member_headers = {"Authorization": f"Bearer {member_token}"}
+
+    assert client.get("/admin/users", headers=member_headers).status_code == 403
+    assert client.get("/admin/users").status_code == 401
+
+    # Two check-ins for the member, none for the admin - the count must be per-user.
+    for _ in range(2):
+        client.post("/checkins", json={"risk_score": 0.3, "band": "watch", "routing_decision": "no_referral_needed"}, headers=member_headers)
+
+    users_response = client.get("/admin/users", headers=admin_headers)
+    assert users_response.status_code == 200
+    by_email = {user["email"]: user for user in users_response.json()}
+    assert by_email["users-member@example.com"]["full_name"] == "Member Person"
+    assert by_email["users-member@example.com"]["checkin_count"] == 2
+    assert by_email["users-member@example.com"]["is_admin"] is False
+    assert by_email["users-admin@example.com"]["checkin_count"] == 0
+    assert by_email["users-admin@example.com"]["is_admin"] is True
+    # Never the password hash or anything from a saved check-in's own content.
+    assert "hashed_password" not in by_email["users-member@example.com"]
+
+
+def test_pageview_tracking_is_public_and_shows_up_in_admin_analytics(monkeypatch) -> None:
+    monkeypatch.setattr(main, "ADMIN_EMAILS", {"pageview-admin@example.com"})
+    admin_token = client.post("/auth/register", json={"email": "pageview-admin@example.com", "password": "correct-horse-battery"}).json()["access_token"]
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # No auth required - the frontend fires this on every page load.
+    for path in ["/", "/", "/meditation"]:
+        response = client.post("/analytics/pageview", json={"path": path})
+        assert response.status_code == 204
+
+    analytics = client.get("/admin/analytics", headers=admin_headers).json()
+    assert analytics["total_pageviews"] >= 3
+    top_pages = {entry["path"]: entry["count"] for entry in analytics["top_pages"]}
+    assert top_pages["/"] >= 2
+    assert top_pages["/meditation"] >= 1
 
 
 def test_forgot_password_does_not_reveal_whether_an_email_is_registered(monkeypatch) -> None:

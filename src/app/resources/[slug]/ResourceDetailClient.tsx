@@ -50,7 +50,9 @@ export default function ResourceDetailClient({ slug }: { slug: string }) {
         <h1>{resource.title}</h1>
         {resource.summary && <p>{resource.summary}</p>}
       </section>
-      <NatureBanner {...naturePhotos.meadow} priority />
+      {resource.image_data_url
+        ? <img className="resource-hero-image" src={resource.image_data_url} alt="" />
+        : <NatureBanner {...naturePhotos.meadow} priority />}
       <section className="admin-section">
         <div className="resource-body">{resource.body.split("\n").map((paragraph, index) => paragraph.trim() && <p key={index}>{paragraph}</p>)}</div>
       </section>

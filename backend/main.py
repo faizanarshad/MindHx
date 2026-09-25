@@ -20,6 +20,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from auth import (
@@ -36,7 +37,7 @@ from auth import (
 )
 from database import get_db, init_db
 from mailer import send_email
-from models import CheckIn, HelpfulPractice, MoodCheckIn, PasswordResetToken, Resource, User
+from models import CheckIn, HelpfulPractice, MoodCheckIn, PageView, PasswordResetToken, Resource, User
 
 logger = logging.getLogger("mindhx")
 
@@ -308,6 +309,9 @@ class ResourceCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     summary: str = Field(default="", max_length=400)
     body: str = Field(default="", max_length=20_000)
+    # A data: URL, client-resized before it gets here - same size backstop
+    # rationale as ProfileUpdateRequest.avatar_data_url.
+    image_data_url: Optional[str] = Field(default=None, max_length=1_500_000)
     published: bool = True
 
 
@@ -319,7 +323,16 @@ class ResourceUpdateRequest(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
     summary: Optional[str] = Field(default=None, max_length=400)
     body: Optional[str] = Field(default=None, max_length=20_000)
+    image_data_url: Optional[str] = Field(default=None, max_length=1_500_000)
     published: Optional[bool] = None
+
+
+class PageViewRequest(BaseModel):
+    # Deliberately just a path - no IP, user agent, referrer, or any
+    # identifier is ever recorded, matching this app's existing minimal-data
+    # posture (see CheckIn/models.py's docstring). Good enough for "how many
+    # visits, to which pages, over time" without being visitor tracking.
+    path: str = Field(min_length=1, max_length=300)
 
 
 class SpeechRequest(BaseModel):
@@ -999,18 +1012,26 @@ def _serialize_resource(resource: Resource) -> dict:
         "title": resource.title,
         "summary": resource.summary,
         "body": resource.body,
+        "image_data_url": resource.image_data_url,
         "published": resource.published,
         "created_at": resource.created_at.isoformat(),
         "updated_at": resource.updated_at.isoformat(),
     }
 
 
+@app.post("/analytics/pageview", status_code=204)
+def record_pageview(payload: PageViewRequest, db: Session = Depends(get_db)) -> None:
+    """Public, fire-and-forget - the frontend calls this on every page load
+    (see lib/pageview.ts) without waiting for or checking the response. No
+    auth, no identifier of any kind is recorded (see PageView's docstring)."""
+    db.add(PageView(path=payload.path[:300]))
+    db.commit()
+
+
 @app.get("/admin/analytics")
 def admin_analytics(admin: User = Depends(get_current_admin), db: Session = Depends(get_db)) -> dict:
-    """Stats from data already in the database - this app has no separate
-    page-view/visitor tracking, deliberately (see the admin panel design
-    discussion): this is what's actually knowable without adding new
-    tracking to a mental-health app."""
+    """Stats from data already in the database, plus site-visit counts from
+    the minimal PageView log (path + timestamp only - see its docstring)."""
     total_users = db.query(User).count()
     total_checkins = db.query(CheckIn).count()
 
@@ -1020,6 +1041,15 @@ def admin_analytics(admin: User = Depends(get_current_admin), db: Session = Depe
     new_users_30d = db.query(User).filter(User.created_at >= since_30d).count()
     checkins_7d = db.query(CheckIn).filter(CheckIn.created_at >= since_7d).count()
     checkins_30d = db.query(CheckIn).filter(CheckIn.created_at >= since_30d).count()
+
+    total_pageviews = db.query(PageView).count()
+    pageviews_7d = db.query(PageView).filter(PageView.created_at >= since_7d).count()
+    pageviews_30d = db.query(PageView).filter(PageView.created_at >= since_30d).count()
+
+    page_counts: dict[str, int] = {}
+    for (path,) in db.query(PageView.path).filter(PageView.created_at >= since_30d).all():
+        page_counts[path] = page_counts.get(path, 0) + 1
+    top_pages = sorted(page_counts.items(), key=lambda item: item[1], reverse=True)[:10]
 
     band_counts: dict[str, int] = {}
     theme_counts: dict[str, int] = {}
@@ -1038,9 +1068,33 @@ def admin_analytics(admin: User = Depends(get_current_admin), db: Session = Depe
         "total_checkins": total_checkins,
         "checkins_7d": checkins_7d,
         "checkins_30d": checkins_30d,
+        "total_pageviews": total_pageviews,
+        "pageviews_7d": pageviews_7d,
+        "pageviews_30d": pageviews_30d,
+        "top_pages": [{"path": path, "count": count} for path, count in top_pages],
         "band_counts": band_counts,
         "top_themes": [{"theme": theme, "count": count} for theme, count in top_themes],
     }
+
+
+@app.get("/admin/users")
+def admin_list_users(admin: User = Depends(get_current_admin), db: Session = Depends(get_db)) -> list[dict]:
+    """Read-only account list for the admin panel - email, name, signup
+    date, admin status, and how many check-ins they've saved. Never the
+    password hash or anything from a saved check-in itself."""
+    checkin_counts = dict(db.query(CheckIn.user_id, func.count(CheckIn.id)).group_by(CheckIn.user_id).all())
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return [
+        {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "is_admin": user.is_admin,
+            "checkin_count": checkin_counts.get(user.id, 0),
+            "created_at": user.created_at.isoformat(),
+        }
+        for user in users
+    ]
 
 
 @app.get("/resources")
@@ -1085,6 +1139,7 @@ def admin_create_resource(payload: ResourceCreateRequest, admin: User = Depends(
         title=payload.title.strip(),
         summary=payload.summary.strip(),
         body=payload.body,
+        image_data_url=payload.image_data_url,
         published=payload.published,
         created_by=admin.id,
     )

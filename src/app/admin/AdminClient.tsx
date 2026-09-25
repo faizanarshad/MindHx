@@ -6,10 +6,11 @@ import AdminGate from "../components/AdminGate";
 import SiteHeader from "../components/SiteHeader";
 import SiteFooter from "../components/SiteFooter";
 import {
-  createResource, deleteResource, fetchAdminAnalytics, fetchAdminResources, updateResource,
-  type AdminAnalytics, type ResourceInput, type ResourceRecord, type ResourceType,
+  createResource, deleteResource, fetchAdminAnalytics, fetchAdminResources, fetchAdminUsers, updateResource,
+  type AdminAnalytics, type AdminUserSummary, type ResourceInput, type ResourceRecord, type ResourceType,
 } from "../lib/admin";
 import { logout, type CurrentUser } from "../lib/auth";
+import { resizeImageToDataUrl } from "../lib/resizeImage";
 
 const RESOURCE_TYPES: ResourceType[] = ["meditation", "therapy", "medication", "general"];
 const BAND_LABEL: Record<string, string> = { low: "Low", watch: "Watch", elevated: "Elevated", crisis: "Crisis" };
@@ -22,6 +23,8 @@ function AdminDashboard({ admin }: { admin: CurrentUser }) {
   const router = useRouter();
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
   const [analyticsError, setAnalyticsError] = useState("");
+  const [users, setUsers] = useState<AdminUserSummary[] | null>(null);
+  const [usersError, setUsersError] = useState("");
   const [resources, setResources] = useState<ResourceRecord[] | null>(null);
   const [resourcesError, setResourcesError] = useState("");
   const [editing, setEditing] = useState<ResourceRecord | null>(null);
@@ -37,6 +40,9 @@ function AdminDashboard({ admin }: { admin: CurrentUser }) {
     fetchAdminAnalytics()
       .then(setAnalytics)
       .catch((err) => setAnalyticsError(err instanceof Error ? err.message : "Could not load analytics."));
+    fetchAdminUsers()
+      .then(setUsers)
+      .catch((err) => setUsersError(err instanceof Error ? err.message : "Could not load users."));
     loadResources();
   }, []);
 
@@ -56,6 +62,7 @@ function AdminDashboard({ admin }: { admin: CurrentUser }) {
   }
 
   const maxBandCount = analytics ? Math.max(1, ...Object.values(analytics.band_counts)) : 1;
+  const maxPageCount = analytics && analytics.top_pages.length > 0 ? Math.max(...analytics.top_pages.map((item) => item.count)) : 1;
 
   return (
     <>
@@ -67,7 +74,7 @@ function AdminDashboard({ admin }: { admin: CurrentUser }) {
       <section className="resource-hero">
         <p className="eyebrow">ADMIN</p>
         <h1>Website overview<br /><em>for {admin.email}.</em></h1>
-        <p>Analytics drawn from saved accounts and check-in history, plus the resource posts you publish here.</p>
+        <p>Analytics drawn from saved accounts, check-in history, and site visits, plus the resource posts you publish here.</p>
       </section>
 
       <section className="admin-section">
@@ -77,6 +84,9 @@ function AdminDashboard({ admin }: { admin: CurrentUser }) {
         {analytics && (
           <>
             <div className="admin-stat-grid">
+              <div className="admin-stat-tile"><strong>{analytics.total_pageviews}</strong><span>Total site visits</span></div>
+              <div className="admin-stat-tile"><strong>{analytics.pageviews_7d}</strong><span>Visits, 7 days</span></div>
+              <div className="admin-stat-tile"><strong>{analytics.pageviews_30d}</strong><span>Visits, 30 days</span></div>
               <div className="admin-stat-tile"><strong>{analytics.total_users}</strong><span>Total accounts</span></div>
               <div className="admin-stat-tile"><strong>{analytics.new_users_7d}</strong><span>New accounts, 7 days</span></div>
               <div className="admin-stat-tile"><strong>{analytics.new_users_30d}</strong><span>New accounts, 30 days</span></div>
@@ -85,6 +95,17 @@ function AdminDashboard({ admin }: { admin: CurrentUser }) {
               <div className="admin-stat-tile"><strong>{analytics.checkins_30d}</strong><span>Check-ins, 30 days</span></div>
             </div>
             <div className="admin-columns">
+              <div>
+                <h3>Most-visited pages (30 days)</h3>
+                {analytics.top_pages.length === 0 && <p className="dashboard-loading">No visits recorded yet.</p>}
+                {analytics.top_pages.map((item) => (
+                  <div className="admin-bar-row" key={item.path}>
+                    <span>{item.path}</span>
+                    <span className="admin-bar-track"><i style={{ width: `${(item.count / maxPageCount) * 100}%` }} /></span>
+                    <span>{item.count}</span>
+                  </div>
+                ))}
+              </div>
               <div>
                 <h3>Check-in bands</h3>
                 {Object.keys(analytics.band_counts).length === 0 && <p className="dashboard-loading">No check-ins saved yet.</p>}
@@ -96,13 +117,37 @@ function AdminDashboard({ admin }: { admin: CurrentUser }) {
                   </div>
                 ))}
               </div>
-              <div>
-                <h3>Top themes</h3>
-                {analytics.top_themes.length === 0 && <p className="dashboard-loading">No themes recorded yet.</p>}
-                <div className="theme-row">{analytics.top_themes.map((item) => <span key={item.theme}>{item.theme.replaceAll("_", " ")} ({item.count})</span>)}</div>
-              </div>
+            </div>
+            <div className="admin-top-themes">
+              <h3>Top themes</h3>
+              {analytics.top_themes.length === 0 && <p className="dashboard-loading">No themes recorded yet.</p>}
+              <div className="theme-row">{analytics.top_themes.map((item) => <span key={item.theme}>{item.theme.replaceAll("_", " ")} ({item.count})</span>)}</div>
             </div>
           </>
+        )}
+      </section>
+
+      <section className="admin-section">
+        <h2>Users</h2>
+        <p className="admin-section-note">Every registered account - read-only here. Never the password, transcript, or typed answers from any check-in.</p>
+        {usersError && <p className="assessment-error">{usersError}</p>}
+        {users === null && !usersError && <p className="dashboard-loading">Loading users…</p>}
+        {users?.length === 0 && <p className="dashboard-loading">No accounts yet.</p>}
+        {users && users.length > 0 && (
+          <div className="admin-user-table">
+            <div className="admin-user-row admin-user-head">
+              <span>Email</span><span>Name</span><span>Check-ins</span><span>Role</span><span>Joined</span>
+            </div>
+            {users.map((user) => (
+              <div className="admin-user-row" key={user.id}>
+                <span>{user.email}</span>
+                <span>{user.full_name || "—"}</span>
+                <span>{user.checkin_count}</span>
+                <span>{user.is_admin ? <b className="admin-user-badge">Admin</b> : "Member"}</span>
+                <span>{new Date(user.created_at).toLocaleDateString()}</span>
+              </div>
+            ))}
+          </div>
         )}
       </section>
 
@@ -119,6 +164,7 @@ function AdminDashboard({ admin }: { admin: CurrentUser }) {
           <div className="admin-resource-list">
             {resources.map((resource) => (
               <article className="admin-resource-row" key={resource.id}>
+                {resource.image_data_url && <img className="admin-resource-thumb" src={resource.image_data_url} alt="" />}
                 <div>
                   <b>{resource.title}</b>
                   <span className="admin-resource-meta">{resource.resource_type} · /{resource.slug} · {resource.published ? "published" : "draft"}</span>
@@ -152,15 +198,36 @@ function ResourceFormModal({ initial, onClose, onSaved }: { initial: ResourceRec
   const [title, setTitle] = useState(initial?.title ?? "");
   const [summary, setSummary] = useState(initial?.summary ?? "");
   const [body, setBody] = useState(initial?.body ?? "");
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(initial?.image_data_url ?? null);
   const [published, setPublished] = useState(initial?.published ?? true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  async function handleImageChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setUploadingImage(true);
+    setError("");
+    try {
+      // Larger than an avatar (256px) since this is a post's hero image,
+      // not a small circular thumbnail - still resized/compressed
+      // client-side before it ever reaches the backend.
+      const dataUrl = await resizeImageToDataUrl(file, 800, 0.8);
+      setImageDataUrl(dataUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not process this image.");
+    } finally {
+      setUploadingImage(false);
+    }
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
     setLoading(true);
-    const input: ResourceInput = { resourceType, slug: slug.trim(), title: title.trim(), summary, body, published };
+    const input: ResourceInput = { resourceType, slug: slug.trim(), title: title.trim(), summary, body, imageDataUrl, published };
     try {
       if (initial) {
         await updateResource(initial.id, input);
@@ -204,12 +271,18 @@ function ResourceFormModal({ initial, onClose, onSaved }: { initial: ResourceRec
             <span>Body</span>
             <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={6} />
           </label>
+          <label>
+            <span>Image (optional)</span>
+            {imageDataUrl && <img className="admin-image-preview" src={imageDataUrl} alt="" />}
+            <input type="file" accept="image/*" onChange={handleImageChange} disabled={uploadingImage} />
+            {imageDataUrl && <button type="button" className="admin-image-remove" onClick={() => setImageDataUrl(null)}>Remove image</button>}
+          </label>
           <label className="admin-published-toggle">
             <input type="checkbox" checked={published} onChange={(event) => setPublished(event.target.checked)} />
             <span>Published (visible on the public site)</span>
           </label>
           {error && <p className="assessment-error auth-error">{error}</p>}
-          <button className="check-in-button" type="submit" disabled={loading}>{loading ? "Saving…" : initial ? "Save changes" : "Add resource"} <span>→</span></button>
+          <button className="check-in-button" type="submit" disabled={loading || uploadingImage}>{loading ? "Saving…" : initial ? "Save changes" : "Add resource"} <span>→</span></button>
         </form>
       </div>
     </div>
