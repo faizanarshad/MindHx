@@ -270,6 +270,16 @@ class CheckInCreateRequest(BaseModel):
     band: str = Field(max_length=20)
     routing_decision: str = Field(max_length=30)
     themes: list[str] = Field(default_factory=list, max_length=10)
+    # Every section's structured result - the same components/support_plan
+    # shape /risk-assess already returns. Deliberately just the two loose
+    # dicts rather than a strict nested schema (their shape already varies -
+    # e.g. voice.emotion and attribution are only present when available),
+    # and deliberately never a field for transcript/typed_text/individual
+    # question answers - those stay out of every request this app sends to
+    # the backend for the account/history feature, not just validated away
+    # here.
+    components: Optional[dict] = None
+    support_plan: Optional[dict] = None
 
 
 class SpeechRequest(BaseModel):
@@ -769,12 +779,20 @@ def _serialize_user(user: User) -> dict:
 
 
 def _serialize_checkin(check_in: CheckIn) -> dict:
+    details: dict = {}
+    if check_in.details_json:
+        try:
+            details = json.loads(check_in.details_json)
+        except ValueError:
+            details = {}
     return {
         "id": check_in.id,
         "risk_score": check_in.risk_score,
         "band": check_in.band,
         "routing_decision": check_in.routing_decision,
         "themes": check_in.themes.split(",") if check_in.themes else [],
+        "components": details.get("components"),
+        "support_plan": details.get("support_plan"),
         "created_at": check_in.created_at.isoformat(),
     }
 
@@ -900,13 +918,17 @@ def change_password(payload: ChangePasswordRequest, current_user: User = Depends
 
 @app.post("/checkins", status_code=201)
 def create_checkin(payload: CheckInCreateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
-    """Save an aggregate check-in result (never the raw transcript/typed text) for a signed-in user."""
+    """Save every section's structured check-in result for a signed-in user -
+    still never the raw transcript, typed text, or individual question
+    answers, which the frontend never sends here in the first place."""
+    details = {"components": payload.components, "support_plan": payload.support_plan}
     check_in = CheckIn(
         user_id=current_user.id,
         risk_score=payload.risk_score,
         band=payload.band,
         routing_decision=payload.routing_decision,
         themes=",".join(payload.themes),
+        details_json=json.dumps(details) if (payload.components or payload.support_plan) else None,
     )
     db.add(check_in)
     db.commit()

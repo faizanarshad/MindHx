@@ -114,6 +114,16 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
                 {entry.themes.length > 0 && (
                   <div className="theme-row">{entry.themes.map((theme) => <span key={theme}>{theme.replaceAll("_", " ")}</span>)}</div>
                 )}
+                {entry.components && (
+                  <div className="dashboard-entry-breakdown">
+                    <span><b>PHQ-9</b> {entry.components.phq9.score}/27 · {entry.components.phq9.band.replaceAll("_", " ")}</span>
+                    <span><b>GAD-7</b> {entry.components.gad7.score}/21 · {entry.components.gad7.band.replaceAll("_", " ")}</span>
+                    <span><b>K10</b> {entry.components.k10.score}/50 · {entry.components.k10.band.replaceAll("_", " ")}</span>
+                    <span><b>Text</b> {entry.components.text.sentiment}</span>
+                    <span><b>Voice</b> {entry.components.voice.available ? `${Math.round((entry.components.voice.signal ?? 0) * 100)}%` : "n/a"}</span>
+                  </div>
+                )}
+                {entry.support_plan?.next_action && <p className="dashboard-entry-next-action">{entry.support_plan.next_action}</p>}
               </div>
             </article>
           ))}

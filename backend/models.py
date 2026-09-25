@@ -2,10 +2,11 @@
 
 The core check-in flow remains fully anonymous and requires no account -
 these tables only back the opt-in "save my history" feature for signed-in
-users. CheckIn deliberately stores only aggregate results (scores, band,
-themes), never the raw transcript or typed text, so a saved history can't
-leak someone's actual free-text disclosures even if the database were
-compromised.
+users. CheckIn stores every section's structured result (scores, bands,
+sentiment/mood/voice breakdowns, support plan) but deliberately never the
+raw transcript, typed text, or individual question answers, so a saved
+history can't leak someone's actual free-text disclosures even if the
+database were compromised.
 """
 
 import uuid
@@ -59,6 +60,15 @@ class CheckIn(Base):
     band: Mapped[str] = mapped_column(String(20), nullable=False)
     routing_decision: Mapped[str] = mapped_column(String(30), nullable=False)
     themes: Mapped[str] = mapped_column(String(200), default="")
+    # Every section's structured result (PHQ-9/GAD-7/K10 sub-scores+bands,
+    # text sentiment/mood breakdown, voice signal breakdown, support plan) as
+    # JSON - deliberately still never the raw transcript, typed text, or
+    # individual question answers, which stay browser-only (see
+    # HomeClient's mindhx:last-checkin-detail and resultsPdf.ts). This is a
+    # meaningfully bigger set of saved detail than before, but keeps the
+    # same "no raw free text ever persisted" line the rest of this file's
+    # docstring describes.
+    details_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     user: Mapped[User] = relationship(back_populates="check_ins")

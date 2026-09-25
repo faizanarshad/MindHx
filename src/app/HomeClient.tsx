@@ -443,7 +443,14 @@ export default function HomeClient() {
         gad7: gadQuestions[languageKey].map((questionText, index) => ({ question: questionText, answer: answerOptions[languageKey][gadAnswers[index]] ?? null })),
         k10: k10Questions[languageKey].map((questionText, index) => ({ question: questionText, answer: k10Options[languageKey][k10Answers[index]] ?? null })),
       }));
-      saveCheckIn(result.risk_score, result.band, result.routing_decision, result.themes ?? []);
+      saveCheckIn({
+        riskScore: result.risk_score,
+        band: result.band,
+        routingDecision: result.routing_decision,
+        themes: result.themes ?? [],
+        components: result.components,
+        supportPlan: result.support_plan,
+      });
       router.push("/results");
     } catch {
       setAssessmentError(language === "اردو" ? "MindHx سروس دستیاب نہیں۔ براہ کرم backend چلا کر دوبارہ کوشش کریں۔" : "MindHx service unavailable. Start the backend and try again.");

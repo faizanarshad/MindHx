@@ -8,6 +8,7 @@
 // keeps the token out of reach of page JavaScript entirely.
 
 import { API_BASE } from "./api";
+import type { Result } from "../components/CheckInResultsBody";
 
 const TOKEN_KEY = "mindhx:auth-token";
 
@@ -62,7 +63,16 @@ export type CurrentUser = {
   avatar_data_url: string | null;
   created_at: string;
 };
-export type CheckInRecord = { id: string; risk_score: number; band: string; routing_decision: string; themes: string[]; created_at: string };
+export type CheckInRecord = {
+  id: string;
+  risk_score: number;
+  band: string;
+  routing_decision: string;
+  themes: string[];
+  components?: Result["components"];
+  support_plan?: Result["support_plan"];
+  created_at: string;
+};
 
 export type RegisterProfile = {
   email: string;
@@ -208,13 +218,32 @@ export async function fetchCheckIns(): Promise<CheckInRecord[]> {
   return await response.json() as CheckInRecord[];
 }
 
-export async function saveCheckIn(riskScore: number, band: string, routingDecision: string, themes: string[]): Promise<void> {
+export type SaveCheckInInput = {
+  riskScore: number;
+  band: string;
+  routingDecision: string;
+  themes: string[];
+  // Every section's structured result - deliberately no transcript/typed
+  // text/individual question answers here; those never leave the browser
+  // (see mindhx:last-checkin-detail).
+  components?: Result["components"];
+  supportPlan?: Result["support_plan"];
+};
+
+export async function saveCheckIn(input: SaveCheckInInput): Promise<void> {
   if (!isLoggedIn()) return;
   try {
     await authFetch("/checkins", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ risk_score: riskScore, band, routing_decision: routingDecision, themes }),
+      body: JSON.stringify({
+        risk_score: input.riskScore,
+        band: input.band,
+        routing_decision: input.routingDecision,
+        themes: input.themes,
+        components: input.components ?? null,
+        support_plan: input.supportPlan ?? null,
+      }),
     });
   } catch {
     // Best-effort only - never block the check-in flow on this.

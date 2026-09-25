@@ -539,6 +539,9 @@ textarea::placeholder { color:#9aa6b4; }
 .dashboard-entry-score span { font:9px 'DM Mono',monospace; color:var(--muted); }
 .dashboard-entry-details { display:flex; flex-direction:column; gap:6px; }
 .dashboard-entry-date { color:var(--muted); font:10px 'DM Mono',monospace; }
+.dashboard-entry-breakdown { display:flex; flex-wrap:wrap; gap:5px 14px; margin:10px 0 0; font-size:11px; color:var(--muted); }
+.dashboard-entry-breakdown b { color:var(--navy); font-weight:600; }
+.dashboard-entry-next-action { margin:8px 0 0; color:var(--muted); font-size:11.5px; line-height:1.5; }
 @media (max-width:720px) { .dashboard-entry { flex-direction:column; align-items:flex-start; } }
 
 /* ---------- Nature photography banners (Unsplash) ---------- */

@@ -134,18 +134,39 @@ def test_checkins_require_auth_and_round_trip() -> None:
     token = register_response.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
+    components = {
+        "phq9": {"score": 12, "band": "moderate"},
+        "gad7": {"score": 9, "band": "mild"},
+        "k10": {"score": 22, "band": "moderate"},
+        "text": {"sentiment": "negative", "signal": 0.6, "anxiety_level": 0.5},
+        "voice": {"available": True, "signal": 0.4, "note": "some pausing"},
+    }
+    support_plan = {"title": "A gentle next step", "next_action": "Try box breathing tonight."}
+    # transcript/typed_text/individual question answers are never part of
+    # this request shape at all - CheckInCreateRequest has no such fields,
+    # so sending them is simply ignored by FastAPI/Pydantic rather than
+    # something that needs its own rejection path.
     create_response = client.post(
         "/checkins",
-        json={"risk_score": 0.42, "band": "watch", "routing_decision": "no_referral_needed", "themes": ["anxiety", "hardship"]},
+        json={
+            "risk_score": 0.42, "band": "watch", "routing_decision": "no_referral_needed", "themes": ["anxiety", "hardship"],
+            "components": components, "support_plan": support_plan,
+            "transcript": "this should be silently ignored, not stored", "typed_text": "same here",
+        },
         headers=headers,
     )
     assert create_response.status_code == 201
-    assert create_response.json()["themes"] == ["anxiety", "hardship"]
+    body = create_response.json()
+    assert body["themes"] == ["anxiety", "hardship"]
+    assert body["components"] == components
+    assert body["support_plan"] == support_plan
+    assert "transcript" not in body and "typed_text" not in body
 
     list_response = client.get("/checkins", headers=headers)
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
     assert list_response.json()[0]["band"] == "watch"
+    assert list_response.json()[0]["components"] == components
 
 
 def test_health() -> None:
