@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -46,6 +46,10 @@ class User(Base):
     # doesn't meaningfully bloat the row. Text, not String, since base64
     # image data comfortably exceeds a typical varchar length.
     avatar_data_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Grants access to /admin (analytics + resource CMS). Never settable via
+    # any user-facing endpoint (registration, profile update) - only ever
+    # flipped directly in the database, so signing up can't grant it.
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     check_ins: Mapped[list["CheckIn"]] = relationship(back_populates="user", cascade="all, delete-orphan")
@@ -108,3 +112,24 @@ class HelpfulPractice(Base):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     practice_name: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class Resource(Base):
+    """An admin-authored resource post (meditation/therapy/medication/general
+    guidance), shown on the public /resources page. Separate from the
+    existing static content in src/app/meditation/data.ts and
+    src/app/therapies/data.ts, which stays exactly as it is - this is
+    additive content admins can publish without a code change/deploy, not a
+    replacement for what's already shipped."""
+    __tablename__ = "resources"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    resource_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # "meditation" | "therapy" | "medication" | "general"
+    slug: Mapped[str] = mapped_column(String(160), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str] = mapped_column(String(400), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    published: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_by: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)

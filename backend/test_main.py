@@ -84,6 +84,70 @@ def test_change_password_requires_current_password_and_then_signs_in_with_new_on
     assert new_password_works.status_code == 200
 
 
+def test_admin_bootstrap_via_admin_emails_env_and_resource_crud(monkeypatch) -> None:
+    """ADMIN_EMAILS is read once at import time, so patch the already-imported
+    module attribute directly rather than the environment (which register/
+    login wouldn't see)."""
+    monkeypatch.setattr(main, "ADMIN_EMAILS", {"admin@example.com"})
+
+    admin_token = client.post("/auth/register", json={"email": "admin@example.com", "password": "correct-horse-battery"}).json()["access_token"]
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    regular_token = client.post("/auth/register", json={"email": "regular@example.com", "password": "correct-horse-battery"}).json()["access_token"]
+    regular_headers = {"Authorization": f"Bearer {regular_token}"}
+
+    assert client.get("/auth/me", headers=admin_headers).json()["is_admin"] is True
+    assert client.get("/auth/me", headers=regular_headers).json()["is_admin"] is False
+
+    # A signed-in non-admin is forbidden (403), distinct from unauthenticated (401).
+    assert client.get("/admin/analytics", headers=regular_headers).status_code == 403
+    assert client.get("/admin/analytics").status_code == 401
+
+    analytics_response = client.get("/admin/analytics", headers=admin_headers)
+    assert analytics_response.status_code == 200
+    assert "total_users" in analytics_response.json()
+
+    create_response = client.post(
+        "/admin/resources",
+        json={"resource_type": "meditation", "slug": "test-breathing", "title": "Test breathing exercise", "summary": "A short summary.", "body": "Full body text.", "published": True},
+        headers=admin_headers,
+    )
+    assert create_response.status_code == 201
+    resource_id = create_response.json()["id"]
+
+    forbidden_create = client.post("/admin/resources", json={"resource_type": "meditation", "slug": "should-fail", "title": "x"}, headers=regular_headers)
+    assert forbidden_create.status_code == 403
+
+    invalid_type_response = client.post("/admin/resources", json={"resource_type": "not-a-real-type", "slug": "bad-type", "title": "x"}, headers=admin_headers)
+    assert invalid_type_response.status_code == 400
+
+    duplicate_slug_response = client.post(
+        "/admin/resources", json={"resource_type": "therapy", "slug": "test-breathing", "title": "Duplicate slug"}, headers=admin_headers
+    )
+    assert duplicate_slug_response.status_code == 409
+
+    public_get_response = client.get("/resources/test-breathing")
+    assert public_get_response.status_code == 200
+    assert public_get_response.json()["title"] == "Test breathing exercise"
+
+    public_list_response = client.get("/resources", params={"resource_type": "meditation"})
+    assert any(resource["slug"] == "test-breathing" for resource in public_list_response.json())
+
+    # Unpublishing hides it from public endpoints but not from the admin's own list.
+    update_response = client.put(f"/admin/resources/{resource_id}", json={"published": False}, headers=admin_headers)
+    assert update_response.status_code == 200
+    assert update_response.json()["published"] is False
+    assert update_response.json()["title"] == "Test breathing exercise"  # untouched by a partial update
+
+    assert client.get("/resources/test-breathing").status_code == 404
+    admin_list_response = client.get("/admin/resources", headers=admin_headers)
+    assert any(resource["slug"] == "test-breathing" for resource in admin_list_response.json())
+
+    delete_response = client.delete(f"/admin/resources/{resource_id}", headers=admin_headers)
+    assert delete_response.status_code == 204
+    admin_list_after_delete = client.get("/admin/resources", headers=admin_headers)
+    assert not any(resource["id"] == resource_id for resource in admin_list_after_delete.json())
+
+
 def test_forgot_password_does_not_reveal_whether_an_email_is_registered(monkeypatch) -> None:
     sent_emails = []
     monkeypatch.setattr(main, "send_email", lambda **kwargs: sent_emails.append(kwargs))

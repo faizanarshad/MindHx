@@ -27,6 +27,7 @@ from auth import (
     as_aware_utc,
     create_access_token,
     generate_reset_token,
+    get_current_admin,
     get_current_user,
     get_optional_current_user,
     hash_password,
@@ -35,7 +36,7 @@ from auth import (
 )
 from database import get_db, init_db
 from mailer import send_email
-from models import CheckIn, HelpfulPractice, MoodCheckIn, PasswordResetToken, User
+from models import CheckIn, HelpfulPractice, MoodCheckIn, PasswordResetToken, Resource, User
 
 logger = logging.getLogger("mindhx")
 
@@ -47,6 +48,21 @@ async def lifespan(_app: FastAPI):
 
 
 WEB_ORIGIN = os.getenv("WEB_ORIGIN", "http://localhost:3000")
+
+# Bootstraps admin access without needing direct database access: any
+# account whose email is in this list gets is_admin set automatically on
+# every register/login. is_admin is otherwise never settable through any
+# request body (RegisterRequest/ProfileUpdateRequest have no such field),
+# so this env var is the only way in or out of admin access.
+ADMIN_EMAILS = {email.strip().lower() for email in os.getenv("ADMIN_EMAILS", "").split(",") if email.strip()}
+
+
+def _sync_admin_flag(user: User, db: Session) -> None:
+    should_be_admin = user.email in ADMIN_EMAILS
+    if user.is_admin != should_be_admin:
+        user.is_admin = should_be_admin
+        db.commit()
+        db.refresh(user)
 
 app = FastAPI(title="MindHx API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
@@ -280,6 +296,30 @@ class CheckInCreateRequest(BaseModel):
     # here.
     components: Optional[dict] = None
     support_plan: Optional[dict] = None
+
+
+RESOURCE_TYPES = {"meditation", "therapy", "medication", "general"}
+SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+class ResourceCreateRequest(BaseModel):
+    resource_type: str = Field(max_length=20)
+    slug: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=200)
+    summary: str = Field(default="", max_length=400)
+    body: str = Field(default="", max_length=20_000)
+    published: bool = True
+
+
+class ResourceUpdateRequest(BaseModel):
+    """Partial update, same model_dump(exclude_unset=True) pattern as
+    ProfileUpdateRequest - only fields present in the request body change."""
+    resource_type: Optional[str] = Field(default=None, max_length=20)
+    slug: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    summary: Optional[str] = Field(default=None, max_length=400)
+    body: Optional[str] = Field(default=None, max_length=20_000)
+    published: Optional[bool] = None
 
 
 class SpeechRequest(BaseModel):
@@ -774,6 +814,7 @@ def _serialize_user(user: User) -> dict:
         "life_context": user.life_context,
         "preferred_language": user.preferred_language,
         "avatar_data_url": user.avatar_data_url,
+        "is_admin": user.is_admin,
         "created_at": user.created_at.isoformat(),
     }
 
@@ -817,6 +858,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict:
     db.add(user)
     db.commit()
     db.refresh(user)
+    _sync_admin_flag(user, db)
     return {"access_token": create_access_token(user.id), "token_type": "bearer"}
 
 
@@ -825,6 +867,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
     user = db.query(User).filter(User.email == payload.email.lower()).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    _sync_admin_flag(user, db)
     return {"access_token": create_access_token(user.id), "token_type": "bearer"}
 
 
@@ -940,6 +983,144 @@ def create_checkin(payload: CheckInCreateRequest, current_user: User = Depends(g
 def list_checkins(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     check_ins = db.query(CheckIn).filter(CheckIn.user_id == current_user.id).order_by(CheckIn.created_at.desc()).all()
     return [_serialize_checkin(check_in) for check_in in check_ins]
+
+
+def _serialize_resource(resource: Resource) -> dict:
+    return {
+        "id": resource.id,
+        "resource_type": resource.resource_type,
+        "slug": resource.slug,
+        "title": resource.title,
+        "summary": resource.summary,
+        "body": resource.body,
+        "published": resource.published,
+        "created_at": resource.created_at.isoformat(),
+        "updated_at": resource.updated_at.isoformat(),
+    }
+
+
+@app.get("/admin/analytics")
+def admin_analytics(admin: User = Depends(get_current_admin), db: Session = Depends(get_db)) -> dict:
+    """Stats from data already in the database - this app has no separate
+    page-view/visitor tracking, deliberately (see the admin panel design
+    discussion): this is what's actually knowable without adding new
+    tracking to a mental-health app."""
+    total_users = db.query(User).count()
+    total_checkins = db.query(CheckIn).count()
+
+    since_7d = datetime.now(timezone.utc) - timedelta(days=7)
+    since_30d = datetime.now(timezone.utc) - timedelta(days=30)
+    new_users_7d = db.query(User).filter(User.created_at >= since_7d).count()
+    new_users_30d = db.query(User).filter(User.created_at >= since_30d).count()
+    checkins_7d = db.query(CheckIn).filter(CheckIn.created_at >= since_7d).count()
+    checkins_30d = db.query(CheckIn).filter(CheckIn.created_at >= since_30d).count()
+
+    band_counts: dict[str, int] = {}
+    theme_counts: dict[str, int] = {}
+    for band, themes in db.query(CheckIn.band, CheckIn.themes).all():
+        band_counts[band] = band_counts.get(band, 0) + 1
+        for theme in (themes or "").split(","):
+            theme = theme.strip()
+            if theme:
+                theme_counts[theme] = theme_counts.get(theme, 0) + 1
+    top_themes = sorted(theme_counts.items(), key=lambda item: item[1], reverse=True)[:10]
+
+    return {
+        "total_users": total_users,
+        "new_users_7d": new_users_7d,
+        "new_users_30d": new_users_30d,
+        "total_checkins": total_checkins,
+        "checkins_7d": checkins_7d,
+        "checkins_30d": checkins_30d,
+        "band_counts": band_counts,
+        "top_themes": [{"theme": theme, "count": count} for theme, count in top_themes],
+    }
+
+
+@app.get("/resources")
+def list_resources(resource_type: Optional[str] = None, db: Session = Depends(get_db)) -> list[dict]:
+    """Public: published resources only. Additive to the existing static
+    meditation/therapies content, not a replacement for it."""
+    query = db.query(Resource).filter(Resource.published.is_(True))
+    if resource_type:
+        query = query.filter(Resource.resource_type == resource_type)
+    resources = query.order_by(Resource.created_at.desc()).all()
+    return [_serialize_resource(resource) for resource in resources]
+
+
+@app.get("/resources/{slug}")
+def get_resource(slug: str, db: Session = Depends(get_db)) -> dict:
+    resource = db.query(Resource).filter(Resource.slug == slug, Resource.published.is_(True)).first()
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    return _serialize_resource(resource)
+
+
+@app.get("/admin/resources")
+def admin_list_resources(admin: User = Depends(get_current_admin), db: Session = Depends(get_db)) -> list[dict]:
+    """Admin: every resource, published or not (unlike GET /resources)."""
+    resources = db.query(Resource).order_by(Resource.created_at.desc()).all()
+    return [_serialize_resource(resource) for resource in resources]
+
+
+@app.post("/admin/resources", status_code=201)
+def admin_create_resource(payload: ResourceCreateRequest, admin: User = Depends(get_current_admin), db: Session = Depends(get_db)) -> dict:
+    resource_type = payload.resource_type.strip().lower()
+    if resource_type not in RESOURCE_TYPES:
+        raise HTTPException(status_code=400, detail=f"resource_type must be one of {sorted(RESOURCE_TYPES)}")
+    slug = payload.slug.strip().lower()
+    if not SLUG_PATTERN.match(slug):
+        raise HTTPException(status_code=400, detail="slug must be lowercase letters, numbers, and hyphens only")
+    if db.query(Resource).filter(Resource.slug == slug).first():
+        raise HTTPException(status_code=409, detail="A resource with this slug already exists")
+    resource = Resource(
+        resource_type=resource_type,
+        slug=slug,
+        title=payload.title.strip(),
+        summary=payload.summary.strip(),
+        body=payload.body,
+        published=payload.published,
+        created_by=admin.id,
+    )
+    db.add(resource)
+    db.commit()
+    db.refresh(resource)
+    return _serialize_resource(resource)
+
+
+@app.put("/admin/resources/{resource_id}")
+def admin_update_resource(resource_id: str, payload: ResourceUpdateRequest, admin: User = Depends(get_current_admin), db: Session = Depends(get_db)) -> dict:
+    resource = db.get(Resource, resource_id)
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    updates = payload.model_dump(exclude_unset=True)
+    if "resource_type" in updates:
+        resource_type = updates["resource_type"].strip().lower()
+        if resource_type not in RESOURCE_TYPES:
+            raise HTTPException(status_code=400, detail=f"resource_type must be one of {sorted(RESOURCE_TYPES)}")
+        updates["resource_type"] = resource_type
+    if "slug" in updates:
+        slug = updates["slug"].strip().lower()
+        if not SLUG_PATTERN.match(slug):
+            raise HTTPException(status_code=400, detail="slug must be lowercase letters, numbers, and hyphens only")
+        existing = db.query(Resource).filter(Resource.slug == slug, Resource.id != resource_id).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="A resource with this slug already exists")
+        updates["slug"] = slug
+    for field, value in updates.items():
+        setattr(resource, field, value)
+    db.commit()
+    db.refresh(resource)
+    return _serialize_resource(resource)
+
+
+@app.delete("/admin/resources/{resource_id}", status_code=204)
+def admin_delete_resource(resource_id: str, admin: User = Depends(get_current_admin), db: Session = Depends(get_db)) -> None:
+    resource = db.get(Resource, resource_id)
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    db.delete(resource)
+    db.commit()
 
 
 @app.post("/session/start")

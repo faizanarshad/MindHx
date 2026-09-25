@@ -10,6 +10,7 @@ const NAV_LINKS: { href: string; en: string; ur: string; emergency?: boolean }[]
   { href: "/meditation", en: "Meditation", ur: "مراقبہ" },
   { href: "/therapies", en: "Therapies", ur: "تھراپیز" },
   { href: "/therapist", en: "Therapist", ur: "معالج" },
+  { href: "/resources", en: "Resources", ur: "وسائل" },
   { href: "/emergency", en: "Emergency support", ur: "فوری مدد", emergency: true },
 ];
 

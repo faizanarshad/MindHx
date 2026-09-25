@@ -11,6 +11,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/meditation", priority: 0.8 },
     { path: "/therapies", priority: 0.8 },
     { path: "/therapist", priority: 0.8 },
+    { path: "/resources", priority: 0.6 },
     { path: "/emergency", priority: 0.6 },
     { path: "/brand", priority: 0.3 },
   ].map(({ path, priority }) => ({

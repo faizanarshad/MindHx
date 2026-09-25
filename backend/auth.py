@@ -75,6 +75,15 @@ def get_current_user(
     return user
 
 
+def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Like get_current_user, but also requires is_admin - for /admin/*
+    endpoints. 403, not 404, is deliberate: this only gates *access* to
+    admin actions, not the existence of anything sensitive."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return current_user
+
+
 def generate_reset_token() -> str:
     """The raw, high-entropy token put in the emailed reset link. Only its
     hash (see hash_reset_token) is ever stored, so a leaked database can't

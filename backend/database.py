@@ -60,6 +60,7 @@ def init_db() -> None:
         "life_context": "VARCHAR(40)",
         "preferred_language": "VARCHAR(10)",
         "avatar_data_url": "TEXT",
+        "is_admin": "BOOLEAN DEFAULT FALSE",
     })
     _ensure_columns("check_ins", {
         "details_json": "TEXT",

@@ -27,11 +27,14 @@ export default function AccountChip({ language = "English" }: { language?: "Engl
   const initial = displayName.trim().charAt(0).toUpperCase() || "A";
 
   return (
-    <Link href="/dashboard" className="account-chip">
-      {user.avatar_data_url
-        ? <img className="account-chip-avatar" src={user.avatar_data_url} alt="" />
-        : <span className="account-chip-avatar account-chip-avatar-placeholder">{initial}</span>}
-      <span className="account-chip-name">{displayName}</span>
-    </Link>
+    <>
+      {user.is_admin && <Link href="/admin" className="topbar-account-link admin-chip-link">Admin</Link>}
+      <Link href="/dashboard" className="account-chip">
+        {user.avatar_data_url
+          ? <img className="account-chip-avatar" src={user.avatar_data_url} alt="" />
+          : <span className="account-chip-avatar account-chip-avatar-placeholder">{initial}</span>}
+        <span className="account-chip-name">{displayName}</span>
+      </Link>
+    </>
   );
 }

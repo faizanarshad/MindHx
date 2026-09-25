@@ -41,7 +41,7 @@ export function isLoggedIn(): boolean {
   return Boolean(getToken());
 }
 
-async function parseErrorDetail(response: Response): Promise<string> {
+export async function parseErrorDetail(response: Response): Promise<string> {
   try {
     const body = await response.json();
     return typeof body.detail === "string" ? body.detail : "Something went wrong.";
@@ -61,6 +61,7 @@ export type CurrentUser = {
   life_context: string | null;
   preferred_language: string | null;
   avatar_data_url: string | null;
+  is_admin: boolean;
   created_at: string;
 };
 export type CheckInRecord = {
@@ -146,7 +147,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
   return result.message;
 }
 
-async function authFetch(path: string, init?: RequestInit): Promise<Response> {
+export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
   const token = getToken();
   if (!token) throw new Error("Not signed in");
   return fetch(`${API_BASE}${path}`, {
