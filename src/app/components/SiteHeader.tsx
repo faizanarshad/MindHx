@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
+import AccountChip from "./AccountChip";
 
 const NAV_LINKS: { href: string; en: string; ur: string; emergency?: boolean }[] = [
   { href: "/medication", en: "Medication", ur: "ادویات" },
@@ -31,6 +32,7 @@ export default function SiteHeader({ backHref = "/", backLabel, language = "Engl
         </nav>
         <div className="resource-header-right">
           {right}
+          <AccountChip language={language} />
           {onToggleLanguage && <button className="language" onClick={onToggleLanguage} type="button">◎ {language}</button>}
           <Link href={backHref} className="resource-back">{backLabel ?? (isUrdu ? "چیک ان پر واپس" : "Back to check-in")} ↗</Link>
         </div>

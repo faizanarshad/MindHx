@@ -491,6 +491,10 @@ textarea::placeholder { color:#9aa6b4; }
 /* ---------- Accounts (optional): auth pages, protected route, dashboard ---------- */
 .topbar-account-link { color:var(--blue); text-decoration:none; font-size:12px; white-space:nowrap; }
 .topbar-account-link:hover { text-decoration:underline; }
+.account-chip { display:flex; align-items:center; gap:8px; color:var(--navy); text-decoration:none; font-size:12px; font-weight:600; white-space:nowrap; }
+.account-chip:hover .account-chip-name { text-decoration:underline; }
+.account-chip-avatar { width:26px; height:26px; border-radius:50%; object-fit:cover; flex:0 0 26px; }
+.account-chip-avatar-placeholder { display:grid; place-items:center; background:var(--blue-soft); color:var(--blue); border:1px solid var(--line-cool); font:600 11px 'Playfair Display',serif; }
 .profile-modal-auth { margin-top:14px; color:var(--muted); font-size:11px; line-height:1.6; }
 .profile-modal-auth a { color:var(--blue); }
 .protected-route-loading { max-width:1120px; margin:120px auto; text-align:center; color:var(--muted); font-size:13px; }
