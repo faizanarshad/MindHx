@@ -5,7 +5,10 @@ export type Result = {
   risk_score: number;
   band: string;
   routing_decision: string;
-  explanation: string[];
+  // Computed by /risk-assess but never actually rendered here - optional so
+  // a saved CheckInRecord (which never stored this field) can be passed in
+  // directly wherever a Result is expected, e.g. an expanded dashboard entry.
+  explanation?: string[];
   crisis_flag?: boolean;
   themes?: string[];
   components?: {

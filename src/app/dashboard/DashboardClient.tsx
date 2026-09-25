@@ -10,6 +10,8 @@ import { naturePhotos } from "../components/naturePhotos";
 import SiteFooter from "../components/SiteFooter";
 import { changePassword, fetchCheckIns, logout, updateProfile, type CheckInRecord, type CurrentUser } from "../lib/auth";
 import { resizeImageToDataUrl } from "../lib/resizeImage";
+import CheckInResultsBody from "../components/CheckInResultsBody";
+import { downloadResultsPdf } from "../lib/resultsPdf";
 
 const BAND_LABEL: Record<string, string> = { low: "Low", watch: "Watch", elevated: "Elevated", crisis: "Crisis" };
 
@@ -25,6 +27,7 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
   const [avatarError, setAvatarError] = useState("");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchCheckIns()
@@ -57,6 +60,14 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
   const displayName = user.full_name || user.email;
   const initial = displayName.trim().charAt(0).toUpperCase() || "A";
 
+  function handleDownloadPdf(entry: CheckInRecord) {
+    // No transcript/typed-text/per-question detail here - that was never
+    // saved for history entries in the first place (see saveCheckIn), so
+    // the PDF's "Full check-in detail" section is simply omitted, same as
+    // it is for a fresh result you haven't set your name on yet.
+    downloadResultsPdf(entry, { name: user.full_name, email: user.email });
+  }
+
   return (
     <>
     <main className="resource-page">
@@ -67,7 +78,7 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
       <section className="resource-hero">
         <p className="eyebrow">YOUR DASHBOARD</p>
         <h1>Check-in history<br /><em>for {user.email}.</em></h1>
-        <p>Only the score, band, and detected themes from each check-in are saved here - never your transcript, typed answers, or individual questionnaire responses.</p>
+        <p>Your combined score, signal breakdown, and support plan are saved here for every check-in - never your transcript, typed answers, or individual questionnaire responses.</p>
       </section>
       <NatureBanner {...naturePhotos.mountainRange} priority />
 
@@ -102,31 +113,51 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
       )}
       {checkIns && checkIns.length > 0 && (
         <div className="dashboard-list">
-          {checkIns.map((entry) => (
-            <article className="dashboard-entry" key={entry.id}>
-              <div className="dashboard-entry-score">
-                <strong>{Math.round(entry.risk_score * 100)}</strong>
-                <span>/ 100</span>
-              </div>
-              <div className="dashboard-entry-details">
-                <b className={`result-band ${entry.band}`}>{BAND_LABEL[entry.band] ?? entry.band}</b>
-                <span className="dashboard-entry-date">{new Date(entry.created_at).toLocaleString()}</span>
-                {entry.themes.length > 0 && (
-                  <div className="theme-row">{entry.themes.map((theme) => <span key={theme}>{theme.replaceAll("_", " ")}</span>)}</div>
-                )}
-                {entry.components && (
-                  <div className="dashboard-entry-breakdown">
-                    <span><b>PHQ-9</b> {entry.components.phq9.score}/27 · {entry.components.phq9.band.replaceAll("_", " ")}</span>
-                    <span><b>GAD-7</b> {entry.components.gad7.score}/21 · {entry.components.gad7.band.replaceAll("_", " ")}</span>
-                    <span><b>K10</b> {entry.components.k10.score}/50 · {entry.components.k10.band.replaceAll("_", " ")}</span>
-                    <span><b>Text</b> {entry.components.text.sentiment}</span>
-                    <span><b>Voice</b> {entry.components.voice.available ? `${Math.round((entry.components.voice.signal ?? 0) * 100)}%` : "n/a"}</span>
+          {checkIns.map((entry) => {
+            const isExpanded = expandedId === entry.id;
+            return (
+              <article className="dashboard-entry-wrap" key={entry.id}>
+                <button
+                  className="dashboard-entry"
+                  type="button"
+                  onClick={() => setExpandedId(isExpanded ? null : entry.id)}
+                  aria-expanded={isExpanded}
+                >
+                  <div className="dashboard-entry-score">
+                    <strong>{Math.round(entry.risk_score * 100)}</strong>
+                    <span>/ 100</span>
+                  </div>
+                  <div className="dashboard-entry-details">
+                    <b className={`result-band ${entry.band}`}>{BAND_LABEL[entry.band] ?? entry.band}</b>
+                    <span className="dashboard-entry-date">{new Date(entry.created_at).toLocaleString()}</span>
+                    {entry.themes.length > 0 && (
+                      <div className="theme-row">{entry.themes.map((theme) => <span key={theme}>{theme.replaceAll("_", " ")}</span>)}</div>
+                    )}
+                    {entry.components && (
+                      <div className="dashboard-entry-breakdown">
+                        <span><b>PHQ-9</b> {entry.components.phq9.score}/27 · {entry.components.phq9.band.replaceAll("_", " ")}</span>
+                        <span><b>GAD-7</b> {entry.components.gad7.score}/21 · {entry.components.gad7.band.replaceAll("_", " ")}</span>
+                        <span><b>K10</b> {entry.components.k10.score}/50 · {entry.components.k10.band.replaceAll("_", " ")}</span>
+                        <span><b>Text</b> {entry.components.text.sentiment}</span>
+                        <span><b>Voice</b> {entry.components.voice.available ? `${Math.round((entry.components.voice.signal ?? 0) * 100)}%` : "n/a"}</span>
+                      </div>
+                    )}
+                    {entry.support_plan?.next_action && <p className="dashboard-entry-next-action">{entry.support_plan.next_action}</p>}
+                  </div>
+                  {entry.components && <span className="dashboard-entry-toggle">{isExpanded ? "Hide full results ↑" : "View full results ↓"}</span>}
+                </button>
+                {isExpanded && entry.components && (
+                  <div className="dashboard-entry-expanded">
+                    <CheckInResultsBody
+                      result={entry}
+                      onDownloadPdf={() => handleDownloadPdf(entry)}
+                      onReturnToCheckIn={() => setExpandedId(null)}
+                    />
                   </div>
                 )}
-                {entry.support_plan?.next_action && <p className="dashboard-entry-next-action">{entry.support_plan.next_action}</p>}
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
     </main>
