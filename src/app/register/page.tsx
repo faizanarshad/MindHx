@@ -5,7 +5,7 @@ import RegisterClient from "./RegisterClient";
 
 export const metadata: Metadata = pageMetadata({
   title: "Create an Account",
-  description: "Create a MindHx account to view your check-in results and save your history over time - your scores, themes, and questionnaire answers are stored, never a transcript.",
+  description: "Create a MindHx account to view your check-in results and save your history over time - your scores, questionnaire answers, and a PDF report of each check-in you can show your doctor.",
   path: "/register",
   noindex: true,
 });

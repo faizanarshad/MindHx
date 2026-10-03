@@ -906,6 +906,64 @@ def test_admin_user_list_includes_last_login() -> None:
     assert rows["last-login-admin@example.com"]["last_login_at"]
 
 
+# --- Saved PDF reports ---
+
+FAKE_PDF = b"%PDF-1.3\n% MindHx test report\n%%EOF\n"
+
+
+def _new_checkin(token: str) -> str:
+    return client.post("/checkins", json={"risk_score": 0.3, "band": "watch", "routing_decision": "no_referral_needed"}, headers=_auth(token)).json()["id"]
+
+
+def test_checkin_report_can_be_saved_downloaded_replaced_and_deleted() -> None:
+    token = client.post("/auth/register", json={"email": "report@example.com", "password": "correct-horse-battery"}).json()["access_token"]
+    check_in_id = _new_checkin(token)
+    assert client.get("/checkins", headers=_auth(token)).json()[0]["has_report"] is False
+
+    upload = client.put(f"/checkins/{check_in_id}/report", files={"file": ("report.pdf", FAKE_PDF, "application/pdf")}, headers=_auth(token))
+    assert upload.status_code == 201
+    assert client.get("/checkins", headers=_auth(token)).json()[0]["has_report"] is True
+
+    download = client.get(f"/checkins/{check_in_id}/report", headers=_auth(token))
+    assert download.status_code == 200
+    assert download.content == FAKE_PDF
+    assert download.headers["content-type"] == "application/pdf"
+    assert "attachment" in download.headers["content-disposition"] and ".pdf" in download.headers["content-disposition"]
+    assert download.headers["cache-control"] == "no-store"
+
+    replacement = FAKE_PDF + b"% v2\n"
+    client.put(f"/checkins/{check_in_id}/report", files={"file": ("report.pdf", replacement, "application/pdf")}, headers=_auth(token))
+    assert client.get(f"/checkins/{check_in_id}/report", headers=_auth(token)).content == replacement
+
+    assert client.delete(f"/checkins/{check_in_id}/report", headers=_auth(token)).status_code == 204
+    assert client.get(f"/checkins/{check_in_id}/report", headers=_auth(token)).status_code == 404
+    # The check-in itself (scores) stays in history.
+    history = client.get("/checkins", headers=_auth(token)).json()
+    assert len(history) == 1 and history[0]["has_report"] is False
+
+
+def test_checkin_reports_are_private_to_their_owner() -> None:
+    owner = client.post("/auth/register", json={"email": "report-owner@example.com", "password": "correct-horse-battery"}).json()["access_token"]
+    other = client.post("/auth/register", json={"email": "report-other@example.com", "password": "correct-horse-battery"}).json()["access_token"]
+    check_in_id = _new_checkin(owner)
+    client.put(f"/checkins/{check_in_id}/report", files={"file": ("r.pdf", FAKE_PDF, "application/pdf")}, headers=_auth(owner))
+
+    assert client.get(f"/checkins/{check_in_id}/report").status_code == 401
+    assert client.get(f"/checkins/{check_in_id}/report", headers=_auth(other)).status_code == 404
+    assert client.put(f"/checkins/{check_in_id}/report", files={"file": ("r.pdf", FAKE_PDF, "application/pdf")}, headers=_auth(other)).status_code == 404
+    assert client.delete(f"/checkins/{check_in_id}/report", headers=_auth(other)).status_code == 404
+    assert client.get(f"/checkins/{check_in_id}/report", headers=_auth(owner)).status_code == 200
+
+
+def test_checkin_report_rejects_non_pdf_and_oversized_uploads() -> None:
+    token = client.post("/auth/register", json={"email": "report-bad@example.com", "password": "correct-horse-battery"}).json()["access_token"]
+    check_in_id = _new_checkin(token)
+    not_pdf = client.put(f"/checkins/{check_in_id}/report", files={"file": ("x.pdf", b"<html>nope</html>", "application/pdf")}, headers=_auth(token))
+    assert not_pdf.status_code == 400
+    too_big = client.put(f"/checkins/{check_in_id}/report", files={"file": ("x.pdf", b"%PDF-" + b"0" * (main.MAX_REPORT_BYTES + 1), "application/pdf")}, headers=_auth(token))
+    assert too_big.status_code == 413
+
+
 VALID_ANSWERS = {"phq9": [1, 2, 0, 3, 1, 0, 2, 1, 0], "gad7": [2, 2, 1, 0, 1, 3, 0], "k10": [1, 2, 3, 4, 5, 1, 2, 3, 4, 5]}
 
 
@@ -985,3 +1043,19 @@ def test_checkins_are_limited_to_one_per_cooldown_window(monkeypatch) -> None:
     # Other accounts aren't affected by this one's cooldown.
     other = _auth(client.post("/auth/register", json={"email": "cooldown-other@example.com", "password": "correct-horse-battery"}).json()["access_token"])
     assert client.post("/checkins", json=body, headers=other).status_code == 201
+
+
+def test_checkin_keeps_both_its_answers_and_its_report() -> None:
+    token = client.post("/auth/register", json={"email": "answers-and-report@example.com", "password": "correct-horse-battery"}).json()["access_token"]
+    check_in_id = client.post("/checkins", json={
+        "risk_score": 0.4, "band": "elevated", "routing_decision": "refer", "answers": VALID_ANSWERS,
+    }, headers=_auth(token)).json()["id"]
+    client.put(f"/checkins/{check_in_id}/report", files={"file": ("r.pdf", FAKE_PDF, "application/pdf")}, headers=_auth(token))
+
+    entry = client.get("/checkins", headers=_auth(token)).json()[0]
+    assert entry["answers"] == VALID_ANSWERS
+    assert entry["has_report"] is True
+    # Deleting the report keeps the answers.
+    client.delete(f"/checkins/{check_in_id}/report", headers=_auth(token))
+    entry = client.get("/checkins", headers=_auth(token)).json()[0]
+    assert entry["answers"] == VALID_ANSWERS and entry["has_report"] is False

@@ -13,13 +13,13 @@ const copy = {
   English: {
     eyebrow: "ABOUT MINDHX",
     title: "Understanding MindHx",
-    intro: "Why this exists, how it actually works, what it never stores, and who it is - and isn't - built for.",
+    intro: "Why this exists, how it actually works, what it keeps and what it doesn't, and who it is - and isn't - built for.",
     back: "Back to check-in",
   },
   اردو: {
     eyebrow: "MindHx کے بارے میں",
     title: "MindHx کو سمجھنا",
-    intro: "یہ کیوں موجود ہے، یہ دراصل کیسے کام کرتا ہے، یہ کیا کبھی محفوظ نہیں کرتا، اور یہ کس کے لیے ہے - اور کس کے لیے نہیں۔",
+    intro: "یہ کیوں موجود ہے، یہ دراصل کیسے کام کرتا ہے، یہ کیا محفوظ کرتا ہے اور کیا نہیں، اور یہ کس کے لیے ہے - اور کس کے لیے نہیں۔",
     back: "چیک ان پر واپس",
   },
 };
@@ -62,17 +62,17 @@ const ABOUT_SECTIONS: AboutSection[] = [
   {
     image: "goldenSea",
     en: {
-      title: "What we never store",
+      title: "What we keep, and what we don't",
       body: [
-        "A screening tool that asks about your inner life only earns trust if it's honest about what happens to what you share. MindHx's default is to keep almost nothing. A voice note is analysed for acoustic features (pause ratio, loudness variability, speaking rate) and then discarded; MindHx never writes the audio to its database and no person listens to it. To turn speech into text and to read the tone of what you write, the audio and text are sent to OpenAI's API for processing - MindHx itself doesn't keep either one.",
-        "Seeing your results needs an account, so they're there when you come back. What's saved to it is each check-in's overall score, risk band, detected themes, and each section's summary scores (for example your PHQ-9 total and band, or the voice and word-choice bars), along with your answer to each questionnaire item, which the MindHx team can review. Your transcript and typed words are never saved. That distinction is deliberate: a therapist you eventually sit down with should hear your story from you, in your own words and your own time, not have it pre-written by an app before you arrive.",
+        "A screening tool that asks about your inner life only earns trust if it's honest about what happens to what you share. MindHx's default is to keep almost nothing. A voice note is analysed for acoustic features (pause ratio, loudness variability, speaking rate) and then discarded; MindHx never writes the audio to its database and no person listens to it. To turn speech into text and to read the tone of what you write, the audio and text are sent to OpenAI's API for processing - MindHx never keeps the audio, and keeps your words only inside your saved check-in report.",
+        "Seeing your results needs an account, so they're there when you come back. Each check-in's scores are saved to it, along with your answer to each questionnaire item, which the MindHx team can review. The check-in's full PDF report is saved too - including what you said and wrote - so you can download it again and bring it to a doctor or therapist. That report is visible only to you, and you can delete it from your dashboard at any time.",
       ],
     },
     ur: {
-      title: "ہم کبھی کیا محفوظ نہیں کرتے",
+      title: "ہم کیا محفوظ کرتے ہیں اور کیا نہیں",
       body: [
-        "ایک اسکریننگ ذریعہ جو آپ کی اندرونی زندگی کے بارے میں پوچھتا ہے وہ اعتماد تب ہی حاصل کرتا ہے جب وہ اس بارے میں ایماندار ہو کہ آپ کی بتائی گئی باتوں کا کیا ہوتا ہے۔ MindHx کا طریقہ کار تقریباً کچھ بھی محفوظ نہ رکھنا ہے۔ صوتی پیغام کو صوتی خصوصیات (خاموشی کا تناسب، آواز کی بلندی میں تبدیلی، بولنے کی رفتار) کے لیے پراسیس کیا جاتا ہے اور پھر ضائع کر دیا جاتا ہے؛ MindHx آواز کو کبھی اپنے ڈیٹا بیس میں محفوظ نہیں کرتا اور نہ ہی کوئی شخص اسے سنتا ہے۔ آواز کو متن میں بدلنے اور آپ کے لکھے ہوئے کے لہجے کو سمجھنے کے لیے آواز اور متن OpenAI کی API کو پراسیسنگ کے لیے بھیجے جاتے ہیں - MindHx خود ان میں سے کچھ بھی محفوظ نہیں رکھتا۔",
-        "نتائج دیکھنے کے لیے اکاؤنٹ ضروری ہے، تاکہ واپس آنے پر وہ موجود ہوں۔ اس میں ہر چیک ان کا مجموعی اسکور، خطرے کا درجہ، شناخت شدہ موضوعات، اور ہر حصے کے خلاصہ اسکور (مثلاً آپ کا PHQ-9 کل اسکور اور درجہ، یا آواز اور الفاظ کے انتخاب کے خانے) محفوظ ہوتے ہیں، اور ساتھ ہی سوالنامے کے ہر سوال کا آپ کا جواب بھی، جسے MindHx کی ٹیم دیکھ سکتی ہے۔ آپ کا متن اور آپ کے لکھے الفاظ کبھی محفوظ نہیں کیے جاتے۔ یہ فرق جان بوجھ کر رکھا گیا ہے: جس معالج سے آپ بالآخر ملیں گے اسے آپ کی کہانی آپ سے، آپ کے اپنے الفاظ اور اپنے وقت میں سننی چاہیے، نہ کہ کسی ایپ کی طرف سے پہلے سے لکھی گئی۔",
+        "ایک اسکریننگ ذریعہ جو آپ کی اندرونی زندگی کے بارے میں پوچھتا ہے وہ اعتماد تب ہی حاصل کرتا ہے جب وہ اس بارے میں ایماندار ہو کہ آپ کی بتائی گئی باتوں کا کیا ہوتا ہے۔ MindHx کا طریقہ کار تقریباً کچھ بھی محفوظ نہ رکھنا ہے۔ صوتی پیغام کو صوتی خصوصیات (خاموشی کا تناسب، آواز کی بلندی میں تبدیلی، بولنے کی رفتار) کے لیے پراسیس کیا جاتا ہے اور پھر ضائع کر دیا جاتا ہے؛ MindHx آواز کو کبھی اپنے ڈیٹا بیس میں محفوظ نہیں کرتا اور نہ ہی کوئی شخص اسے سنتا ہے۔ آواز کو متن میں بدلنے اور آپ کے لکھے ہوئے کے لہجے کو سمجھنے کے لیے آواز اور متن OpenAI کی API کو پراسیسنگ کے لیے بھیجے جاتے ہیں - MindHx آواز کبھی محفوظ نہیں کرتا، اور آپ کے الفاظ صرف آپ کی محفوظ شدہ جائزہ رپورٹ میں رکھتا ہے۔",
+        "نتائج دیکھنے کے لیے اکاؤنٹ ضروری ہے، تاکہ واپس آنے پر وہ موجود ہوں۔ اس میں ہر چیک ان کے اسکور محفوظ ہوتے ہیں، اور ساتھ ہی سوالنامے کے ہر سوال کا آپ کا جواب بھی، جسے MindHx کی ٹیم دیکھ سکتی ہے۔ چیک ان کی مکمل PDF رپورٹ بھی محفوظ ہوتی ہے - جس میں وہ بھی شامل ہے جو آپ نے کہا اور لکھا - تاکہ آپ اسے دوبارہ ڈاؤن لوڈ کر کے کسی ڈاکٹر یا معالج کے پاس لے جا سکیں۔ یہ رپورٹ صرف آپ کو نظر آتی ہے، اور آپ اسے اپنے ڈیش بورڈ سے کسی بھی وقت حذف کر سکتے ہیں۔",
       ],
     },
   },

@@ -1,7 +1,8 @@
-// Builds a doctor-shareable PDF summary of a MindHx check-in, entirely in
-// the browser - the PDF is generated from data already on the results page
-// and never sent to or stored on the backend, consistent with the app's
-// "we only ever save score/band/themes" privacy model.
+// Builds a doctor-shareable PDF report of a MindHx check-in, in the
+// browser, from data already on the results page. For signed-in users the
+// generated file is also saved to their account (see lib/checkinHistory.ts)
+// so they can download it again from their dashboard - e.g. to show a
+// doctor - and delete it there.
 //
 // Includes every signal graph (as vector bars, not screenshots) plus, when
 // per-question detail is available, the full transcript, written
@@ -10,7 +11,7 @@
 // not just the aggregate score.
 import { jsPDF } from "jspdf";
 
-type ResultForPdf = {
+export type ResultForPdf = {
   risk_score: number;
   band: string;
   routing_decision: string;
@@ -33,7 +34,7 @@ type ResultForPdf = {
   };
 };
 
-type CheckInDetailForPdf = {
+export type CheckInDetailForPdf = {
   language: string;
   transcript: string;
   typedText: string;
@@ -42,7 +43,7 @@ type CheckInDetailForPdf = {
   k10: { question: string; answer: string | null }[];
 };
 
-type PreparedFor = { name?: string | null; email?: string | null };
+export type PreparedFor = { name?: string | null; email?: string | null };
 
 const MARGIN = 18;
 const PAGE_WIDTH = 210; // A4, mm
@@ -50,6 +51,15 @@ const PAGE_HEIGHT = 297;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
 export function downloadResultsPdf(result: ResultForPdf, preparedFor: PreparedFor = {}, detail?: CheckInDetailForPdf): void {
+  buildResultsPdf(result, preparedFor, detail).save(`mindhx-checkin-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+// The same report as a Blob, for saving to the user's account.
+export function resultsPdfBlob(result: ResultForPdf, preparedFor: PreparedFor = {}, detail?: CheckInDetailForPdf): Blob {
+  return buildResultsPdf(result, preparedFor, detail).output("blob");
+}
+
+function buildResultsPdf(result: ResultForPdf, preparedFor: PreparedFor, detail?: CheckInDetailForPdf): jsPDF {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   let y = MARGIN;
 
@@ -408,10 +418,9 @@ export function downloadResultsPdf(result: ResultForPdf, preparedFor: PreparedFo
   ensureSpace(14);
   spacer(8);
   paragraph(
-    "This PDF was generated locally in your browser from your MindHx check-in results. MindHx does not store or transmit this document - only the score, band, and themes above are ever saved to your account.",
+    "This report was generated in your browser from your MindHx check-in. A copy is saved to your MindHx account so you can download it again from your dashboard, where you can also delete it at any time.",
     { size: 8.5, color: [140, 150, 165] }
   );
 
-  const filenameDate = new Date().toISOString().slice(0, 10);
-  doc.save(`mindhx-checkin-${filenameDate}.pdf`);
+  return doc;
 }

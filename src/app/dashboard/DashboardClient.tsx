@@ -8,7 +8,7 @@ import SiteHeader from "../components/SiteHeader";
 import NatureBanner from "../components/NatureBanner";
 import { naturePhotos } from "../components/naturePhotos";
 import SiteFooter from "../components/SiteFooter";
-import { changePassword, fetchCheckInEligibility, fetchCheckIns, fetchLoginSessions, logout, revokeLoginSession, revokeOtherLoginSessions, updateProfile, type CheckInEligibility, type CheckInRecord, type CurrentUser, type LoginSessionRecord } from "../lib/auth";
+import { changePassword, deleteCheckInReport, downloadCheckInReport, fetchCheckInEligibility, fetchCheckIns, fetchLoginSessions, logout, revokeLoginSession, revokeOtherLoginSessions, updateProfile, type CheckInEligibility, type CheckInRecord, type CurrentUser, type LoginSessionRecord } from "../lib/auth";
 import { resizeImageToDataUrl } from "../lib/resizeImage";
 import CheckInResultsBody from "../components/CheckInResultsBody";
 import ProgressCharts from "../components/ProgressCharts";
@@ -40,6 +40,8 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [reportBusyId, setReportBusyId] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<{ id: string; message: string } | null>(null);
   const [eligibility, setEligibility] = useState<CheckInEligibility | null>(null);
 
   useEffect(() => {
@@ -74,13 +76,38 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
   const displayName = user.full_name || user.email;
   const initial = displayName.trim().charAt(0).toUpperCase() || "A";
 
-  function handleDownloadPdf(entry: CheckInRecord) {
-    // No transcript/typed-text/per-question detail here - transcript and
-    // typed text are never saved (see saveCheckIn), so the PDF's "Full
-    // check-in detail" section is simply omitted, same as it is for a fresh
-    // result you haven't set your name on yet. The saved answers are shown
-    // on this page instead (QuestionnaireAnswersList).
-    downloadResultsPdf(entry, { name: user.full_name, email: user.email });
+  async function handleDownloadPdf(entry: CheckInRecord) {
+    if (!entry.has_report) {
+      // Check-ins saved before reports were kept (or whose report was
+      // deleted): rebuild a summary PDF from the saved scores. It has no
+      // transcript or written text - only the saved report does; saved item
+      // answers are shown on this page instead (QuestionnaireAnswersList).
+      downloadResultsPdf(entry, { name: user.full_name, email: user.email });
+      return;
+    }
+    setReportBusyId(entry.id);
+    setReportError(null);
+    try {
+      await downloadCheckInReport(entry.id);
+    } catch {
+      setReportError({ id: entry.id, message: "Could not download this report right now." });
+    } finally {
+      setReportBusyId(null);
+    }
+  }
+
+  async function handleDeleteReport(entry: CheckInRecord) {
+    if (!window.confirm("Delete the saved PDF report for this check-in? Its scores stay in your history, but the full report - your answers and what you wrote or said - is removed for good.")) return;
+    setReportBusyId(entry.id);
+    setReportError(null);
+    try {
+      await deleteCheckInReport(entry.id);
+      setCheckIns((current) => current?.map((item) => item.id === entry.id ? { ...item, has_report: false } : item) ?? null);
+    } catch {
+      setReportError({ id: entry.id, message: "Could not delete this report right now." });
+    } finally {
+      setReportBusyId(null);
+    }
   }
 
   return (
@@ -95,7 +122,7 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
         <section className="resource-hero">
           <p className="eyebrow">YOUR DASHBOARD</p>
           <h1>Check-in history<br /><em>for {user.email}.</em></h1>
-          <p>Your combined score, signal breakdown, and support plan are saved here for every check-in, along with your answer to each questionnaire item (which the MindHx team can review) - never your transcript or typed words.</p>
+          <p>Every check-in is saved here: your combined score, signal breakdown, support plan, and your answer to each questionnaire item (which the MindHx team can review). Its full PDF report - including what you said and wrote - is saved too, visible only to you, so you can download it any time and show it to your doctor. You can delete a saved report whenever you like.</p>
         </section>
       </div>
 
@@ -177,6 +204,20 @@ function DashboardContent({ initialUser }: { initialUser: CurrentUser }) {
                   </div>
                   {(entry.components || entry.answers) && <span className="dashboard-entry-toggle">{isExpanded ? "Hide full results ↑" : "View full results ↓"}</span>}
                 </button>
+                <div className="dashboard-report-row">
+                  {entry.has_report
+                    ? <span>📄 Full report saved - your answers and scores, ready to show your doctor.</span>
+                    : <span>Summary only - the full report for this check-in isn&apos;t saved.</span>}
+                  <div>
+                    <button type="button" onClick={() => handleDownloadPdf(entry)} disabled={reportBusyId === entry.id}>
+                      {reportBusyId === entry.id ? "Working…" : entry.has_report ? "Download report (PDF)" : "Download summary (PDF)"}
+                    </button>
+                    {entry.has_report && (
+                      <button type="button" className="dashboard-report-delete" onClick={() => handleDeleteReport(entry)} disabled={reportBusyId === entry.id}>Delete report</button>
+                    )}
+                  </div>
+                  {reportError?.id === entry.id && <p className="assessment-error">{reportError.message}</p>}
+                </div>
                 {isExpanded && (entry.components || entry.answers) && (
                   <div className="dashboard-entry-expanded">
                     {entry.answers && (

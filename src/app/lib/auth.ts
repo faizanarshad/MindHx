@@ -72,6 +72,7 @@ export type CheckInRecord = {
   themes: string[];
   components?: Result["components"];
   support_plan?: Result["support_plan"];
+  has_report?: boolean;
   // The person's own item answers; null for check-ins saved before answers
   // were recorded, or without all three questionnaires complete.
   answers?: QuestionnaireAnswers | null;
@@ -129,7 +130,7 @@ export async function login(email: string, password: string): Promise<string> {
 // an unfinished draft, and local mood/practice notes. Cleared on sign-out
 // so the next person to use this browser (a shared or family device) can't
 // open /results and see the previous person's check-in under their own name.
-const PRIVATE_SESSION_KEYS = ["mindhx:last-result", "mindhx:last-checkin-detail", "mindhx:crisis-context", "mindhx:pending-checkin"];
+const PRIVATE_SESSION_KEYS = ["mindhx:last-result", "mindhx:last-checkin-detail", "mindhx:last-result-saved", "mindhx:last-checkin-answers", "mindhx:crisis-context", "mindhx:pending-checkin"];
 const PRIVATE_LOCAL_KEYS = ["mindhx:mood-checkins", "mindhx:helpful-practices"];
 
 export function logout(): void {
@@ -282,8 +283,8 @@ export type SaveCheckInInput = {
   band: string;
   routingDecision: string;
   themes: string[];
-  // Every section's structured result - deliberately no transcript/typed
-  // text here; those never leave the browser (see mindhx:last-checkin-detail).
+  // Every section's structured result - the transcript and written text
+  // aren't sent here; they go only into the PDF report (uploadCheckInReport).
   components?: Result["components"];
   supportPlan?: Result["support_plan"];
   // Individual item answers (PHQ-9/GAD-7 0-3, K10 1-5), readable by admins.
@@ -293,25 +294,53 @@ export type SaveCheckInInput = {
 
 export type QuestionnaireAnswers = { phq9: number[]; gad7: number[]; k10: number[] };
 
-export async function saveCheckIn(input: SaveCheckInInput): Promise<void> {
-  if (!isLoggedIn()) return;
-  try {
-    await authFetch("/checkins", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        risk_score: input.riskScore,
-        band: input.band,
-        routing_decision: input.routingDecision,
-        themes: input.themes,
-        components: input.components ?? null,
-        support_plan: input.supportPlan ?? null,
-        answers: input.answers ?? null,
-      }),
-    });
-  } catch {
-    // Best-effort only - never block the check-in flow on this.
-  }
+// Saves a check-in's scores to the signed-in user's history and returns
+// its id (for attaching the PDF report - see lib/checkinHistory.ts).
+// Throws on failure so the results page can say so and offer a retry.
+export async function saveCheckIn(input: SaveCheckInInput): Promise<string> {
+  const response = await authFetch("/checkins", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      risk_score: input.riskScore,
+      band: input.band,
+      routing_decision: input.routingDecision,
+      themes: input.themes,
+      components: input.components ?? null,
+      support_plan: input.supportPlan ?? null,
+      answers: input.answers ?? null,
+    }),
+  });
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  const saved = await response.json() as { id: string };
+  return saved.id;
+}
+
+export async function uploadCheckInReport(checkInId: string, pdf: Blob): Promise<void> {
+  const form = new FormData();
+  form.append("file", pdf, "mindhx-checkin.pdf");
+  const response = await authFetch(`/checkins/${encodeURIComponent(checkInId)}/report`, { method: "PUT", body: form });
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+}
+
+// Downloads the exact PDF that was saved after the check-in.
+export async function downloadCheckInReport(checkInId: string): Promise<void> {
+  const response = await authFetch(`/checkins/${encodeURIComponent(checkInId)}/report`);
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  const filename = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "mindhx-checkin.pdf";
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function deleteCheckInReport(checkInId: string): Promise<void> {
+  const response = await authFetch(`/checkins/${encodeURIComponent(checkInId)}/report`, { method: "DELETE" });
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
 }
 
 export type LoginSessionRecord = {

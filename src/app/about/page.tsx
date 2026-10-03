@@ -4,7 +4,7 @@ import AboutClient from "./AboutClient";
 
 export const metadata: Metadata = pageMetadata({
   title: "About MindHx",
-  description: "Why MindHx exists, how its three signals work together, what it never stores, where a check-in routes next, and who it is - and isn't - built for.",
+  description: "Why MindHx exists, how its three signals work together, what it keeps and what it doesn't, where a check-in routes next, and who it is - and isn't - built for.",
   path: "/about",
 });
 

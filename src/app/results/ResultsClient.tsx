@@ -11,8 +11,9 @@ import SiteFooter from "../components/SiteFooter";
 import CrisisBanner from "../components/CrisisBanner";
 import CheckInResultsBody, { type Result } from "../components/CheckInResultsBody";
 import { fetchCurrentUser, isLoggedIn } from "../lib/auth";
-import { downloadResultsPdf } from "../lib/resultsPdf";
+import { downloadResultsPdf, type PreparedFor } from "../lib/resultsPdf";
 import { crisisCopy } from "../lib/crisisCopy";
+import { isSavedToHistory, saveResultToHistory } from "../lib/checkinHistory";
 
 type CheckInDetail = {
   language: string;
@@ -23,11 +24,45 @@ type CheckInDetail = {
   k10: { question: string; answer: string | null }[];
 };
 
+type SaveStatus = "idle" | "saving" | "saved" | "error";
+
+const saveCopy = {
+  en: {
+    saving: "Saving this report to your history…",
+    saved: "Saved to your history. You can download this report again any time from your dashboard - for example, to show your doctor.",
+    openHistory: "Open my history",
+    error: "This report couldn't be saved to your history.",
+    retry: "Try again",
+  },
+  ur: {
+    saving: "یہ رپورٹ آپ کی تاریخ میں محفوظ کی جا رہی ہے…",
+    saved: "آپ کی تاریخ میں محفوظ ہو گئی۔ آپ یہ رپورٹ کسی بھی وقت اپنے ڈیش بورڈ سے دوبارہ ڈاؤن لوڈ کر سکتے ہیں - مثلاً اپنے ڈاکٹر کو دکھانے کے لیے۔",
+    openHistory: "میری تاریخ کھولیں",
+    error: "یہ رپورٹ آپ کی تاریخ میں محفوظ نہیں ہو سکی۔",
+    retry: "دوبارہ کوشش کریں",
+  },
+};
+
+async function saveWithStatus(result: Result, preparedFor: PreparedFor, detail: CheckInDetail | null, setStatus: (status: SaveStatus) => void, setErrorDetail: (detail: string) => void) {
+  setStatus("saving");
+  setErrorDetail("");
+  try {
+    await saveResultToHistory(result, preparedFor, detail ?? undefined);
+    setStatus("saved");
+  } catch (err) {
+    // e.g. the once-per-CHECKIN_COOLDOWN_DAYS limit - show the server's reason.
+    setErrorDetail(err instanceof Error && err.message !== "Something went wrong." ? err.message : "");
+    setStatus("error");
+  }
+}
+
 export default function ResultsClient() {
   const router = useRouter();
   const [result, setResult] = useState<Result | null>(null);
   const [detail, setDetail] = useState<CheckInDetail | null>(null);
-  const [preparedFor, setPreparedFor] = useState<{ name?: string | null; email?: string | null }>({});
+  const [preparedFor, setPreparedFor] = useState<PreparedFor>({});
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [saveErrorDetail, setSaveErrorDetail] = useState("");
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -35,15 +70,24 @@ export default function ResultsClient() {
       return;
     }
     const stored = sessionStorage.getItem("mindhx:last-result");
-    if (stored) {
-      startTransition(() => setResult(JSON.parse(stored) as Result));
+    const storedResult = stored ? JSON.parse(stored) as Result : null;
+    if (storedResult) {
+      startTransition(() => setResult(storedResult));
     }
-    const storedDetail = sessionStorage.getItem("mindhx:last-checkin-detail");
+    const storedDetailRaw = sessionStorage.getItem("mindhx:last-checkin-detail");
+    const storedDetail = storedDetailRaw ? JSON.parse(storedDetailRaw) as CheckInDetail : null;
     if (storedDetail) {
-      startTransition(() => setDetail(JSON.parse(storedDetail) as CheckInDetail));
+      startTransition(() => setDetail(storedDetail));
     }
     fetchCurrentUser().then((user) => {
-      if (user) startTransition(() => setPreparedFor({ name: user.full_name, email: user.email }));
+      if (!user) return;
+      const prepared = { name: user.full_name, email: user.email };
+      startTransition(() => setPreparedFor(prepared));
+      // Save this check-in (scores + this same PDF report) to the user's
+      // history, once - a reload finds it already saved.
+      if (!storedResult) return;
+      if (isSavedToHistory()) startTransition(() => setSaveStatus("saved"));
+      else saveWithStatus(storedResult, prepared, storedDetail, setSaveStatus, setSaveErrorDetail);
     });
   }, [router]);
 
@@ -59,6 +103,7 @@ export default function ResultsClient() {
   const isCrisis = Boolean(result.crisis_flag || result.band === "crisis");
   const bannerLanguage = detail?.language === "اردو" ? "ur" : "en";
   const crisisText = crisisCopy[bannerLanguage];
+  const saveText = saveCopy[bannerLanguage];
 
   return (
     <>
@@ -83,6 +128,18 @@ export default function ResultsClient() {
           </div>
           <p className="results-crisis-note">Your full results and PDF are still available below - bring them to whoever you reach out to.</p>
         </>
+      )}
+      {saveStatus !== "idle" && (
+        <div className={`results-save-status is-${saveStatus}`} role="status" dir={bannerLanguage === "ur" ? "rtl" : "ltr"}>
+          {saveStatus === "saving" && <span>{saveText.saving}</span>}
+          {saveStatus === "saved" && <><span>✓ {saveText.saved}</span><Link href="/dashboard">{saveText.openHistory} →</Link></>}
+          {saveStatus === "error" && (
+            <>
+              <span>{saveText.error}{saveErrorDetail && <> {saveErrorDetail}</>}</span>
+              <button type="button" onClick={() => saveWithStatus(result, preparedFor, detail, setSaveStatus, setSaveErrorDetail)}>{saveText.retry}</button>
+            </>
+          )}
+        </div>
       )}
       <CheckInResultsBody result={result} onDownloadPdf={handleDownloadPdf} onReturnToCheckIn={() => router.push("/")} />
     </main>

@@ -1,19 +1,21 @@
-"""SQLAlchemy models for the optional account/dashboard feature.
+"""SQLAlchemy models for the account/dashboard feature.
 
-The core check-in flow remains fully anonymous and requires no account -
-these tables only back the opt-in "save my history" feature for signed-in
-users. CheckIn stores every section's structured result (scores, bands,
+CheckIn stores every section's structured result (scores, bands,
 sentiment/mood/voice breakdowns, support plan) and the individual
-questionnaire answers (admin-visible), but deliberately never the raw
-transcript or typed text, so a saved history can't leak someone's actual
-free-text disclosures even if the database were compromised.
+questionnaire answers (answers_json, which admins can also read). The
+voice transcript and written reflection are stored only inside the PDF
+report (CheckInReport) generated after each check-in, so the person can
+show it to their doctor later; that report is visible only to its owner,
+can be deleted by them at any time, and is deleted with the check-in or
+account. This makes a leaked database more sensitive than scores alone
+would be.
 """
 
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -71,12 +73,9 @@ class CheckIn(Base):
     themes: Mapped[str] = mapped_column(String(200), default="")
     # Every section's structured result (PHQ-9/GAD-7/K10 sub-scores+bands,
     # text sentiment/mood breakdown, voice signal breakdown, support plan) as
-    # JSON - deliberately still never the raw transcript, typed text, or
-    # individual question answers, which stay browser-only (see
-    # HomeClient's mindhx:last-checkin-detail and resultsPdf.ts). This is a
-    # meaningfully bigger set of saved detail than before, but keeps the
-    # same "no raw free text ever persisted" line the rest of this file's
-    # docstring describes.
+    # JSON. The transcript, typed text, and individual answers aren't in
+    # here - they're only in the PDF report (CheckInReport), which the
+    # owner can delete on its own.
     details_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # The individual PHQ-9/GAD-7/K10 item answers, as JSON
     # {"phq9": [9 ints 0-3], "gad7": [7 ints 0-3], "k10": [10 ints 1-5]},
@@ -191,3 +190,18 @@ class LoginSession(Base):
     # when a password change/reset signs out other sessions.
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     end_reason: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # "logout" | "revoked" | "password_change" | "password_reset"
+
+
+class CheckInReport(Base):
+    """The PDF report generated in the browser after a check-in (see
+    src/app/lib/resultsPdf.ts), saved so the person can re-download and show
+    it to a doctor later. Kept in its own table so listing check-ins never
+    loads PDF bytes. One report per check-in; re-uploading replaces it."""
+    __tablename__ = "check_in_reports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    check_in_id: Mapped[str] = mapped_column(String(36), ForeignKey("check_ins.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    pdf_data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

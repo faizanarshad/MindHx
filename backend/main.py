@@ -43,7 +43,7 @@ from auth import (
 )
 from database import get_db, init_db
 from mailer import send_email
-from models import CheckIn, HelpfulPractice, LoginSession, MoodCheckIn, PageView, PasswordResetToken, Resource, User
+from models import CheckIn, CheckInReport, HelpfulPractice, LoginSession, MoodCheckIn, PageView, PasswordResetToken, Resource, User
 from ratelimit import rate_limit
 
 logger = logging.getLogger("mindhx")
@@ -319,9 +319,9 @@ class CheckInCreateRequest(BaseModel):
     # shape /risk-assess already returns. Deliberately just the two loose
     # dicts rather than a strict nested schema (their shape already varies -
     # e.g. voice.emotion and attribution are only present when available),
-    # and deliberately never a field for transcript/typed_text - those stay
-    # out of every request this app sends to the backend for the
-    # account/history feature, not just validated away here.
+    # and no field for transcript/typed_text - those are saved only inside
+    # the PDF report (PUT /checkins/{id}/report), so the owner can delete
+    # them without losing their score history.
     components: Optional[dict] = None
     support_plan: Optional[dict] = None
     # Optional so older clients (and check-ins without complete
@@ -874,7 +874,7 @@ def _serialize_user(user: User) -> dict:
     }
 
 
-def _serialize_checkin(check_in: CheckIn, include_answers: bool = False) -> dict:
+def _serialize_checkin(check_in: CheckIn, include_answers: bool = False, has_report: bool = False) -> dict:
     details: dict = {}
     if check_in.details_json:
         try:
@@ -889,6 +889,7 @@ def _serialize_checkin(check_in: CheckIn, include_answers: bool = False) -> dict
         "themes": check_in.themes.split(",") if check_in.themes else [],
         "components": details.get("components"),
         "support_plan": details.get("support_plan"),
+        "has_report": has_report,
         "created_at": check_in.created_at.isoformat(),
     }
     if include_answers:
@@ -1187,9 +1188,10 @@ def get_checkin_eligibility(current_user: User = Depends(get_current_user), db: 
 @app.post("/checkins", status_code=201)
 def create_checkin(payload: CheckInCreateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     """Save every section's structured check-in result, plus the individual
-    questionnaire answers when sent, for a signed-in user - still never the
-    raw transcript or typed text, which the frontend never sends here in the
-    first place. At most one per CHECKIN_COOLDOWN_DAYS per account."""
+    questionnaire answers when sent, for a signed-in user. The transcript
+    and written text arrive separately, inside the PDF report (PUT
+    /checkins/{id}/report). At most one per CHECKIN_COOLDOWN_DAYS per
+    account."""
     eligibility = checkin_eligibility(db, current_user)
     if not eligibility["can_check_in"]:
         retry_after = int((datetime.fromisoformat(eligibility["next_available_at"]) - datetime.now(timezone.utc)).total_seconds()) + 1
@@ -1225,7 +1227,70 @@ def create_checkin(payload: CheckInCreateRequest, current_user: User = Depends(g
 def list_checkins(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     """The account's own history, including its own questionnaire answers."""
     check_ins = db.query(CheckIn).filter(CheckIn.user_id == current_user.id).order_by(CheckIn.created_at.desc()).all()
-    return [_serialize_checkin(check_in, include_answers=True) for check_in in check_ins]
+    # Only the ids - never load PDF bytes just to list history.
+    with_reports = {check_in_id for (check_in_id,) in db.query(CheckInReport.check_in_id).filter(CheckInReport.user_id == current_user.id).all()}
+    return [_serialize_checkin(check_in, include_answers=True, has_report=check_in.id in with_reports) for check_in in check_ins]
+
+
+MAX_REPORT_BYTES = 5 * 1024 * 1024  # A generated report is typically well under 200 KB.
+
+
+def _owned_checkin(check_in_id: str, user: User, db: Session) -> CheckIn:
+    """404 (not 403) for someone else's check-in, so ids can't be probed."""
+    check_in = db.get(CheckIn, check_in_id)
+    if not check_in or check_in.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Check-in not found")
+    return check_in
+
+
+@app.put("/checkins/{check_in_id}/report", status_code=201)
+async def upload_checkin_report(
+    check_in_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Saves the PDF report generated in the browser after a check-in, so
+    it can be downloaded again (e.g. to show a doctor). Replaces any report
+    already saved for that check-in."""
+    _owned_checkin(check_in_id, current_user, db)
+    pdf = await file.read(MAX_REPORT_BYTES + 1)
+    if len(pdf) > MAX_REPORT_BYTES:
+        raise HTTPException(status_code=413, detail="Report is too large")
+    if not pdf.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="Report must be a PDF file")
+    report = db.query(CheckInReport).filter(CheckInReport.check_in_id == check_in_id).first()
+    if report:
+        report.pdf_data = pdf
+        report.size_bytes = len(pdf)
+        report.created_at = datetime.now(timezone.utc)
+    else:
+        db.add(CheckInReport(check_in_id=check_in_id, user_id=current_user.id, pdf_data=pdf, size_bytes=len(pdf)))
+    db.commit()
+    return {"check_in_id": check_in_id, "size_bytes": len(pdf)}
+
+
+@app.get("/checkins/{check_in_id}/report")
+def download_checkin_report(check_in_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> Response:
+    check_in = _owned_checkin(check_in_id, current_user, db)
+    report = db.query(CheckInReport).filter(CheckInReport.check_in_id == check_in_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="No saved report for this check-in")
+    filename = f"mindhx-checkin-{as_aware_utc(check_in.created_at).strftime('%Y-%m-%d')}.pdf"
+    return Response(
+        content=report.pdf_data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+    )
+
+
+@app.delete("/checkins/{check_in_id}/report", status_code=204)
+def delete_checkin_report(check_in_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> None:
+    """Deletes just the saved PDF (the part holding the person's own words
+    and answers); the check-in's scores stay in their history."""
+    _owned_checkin(check_in_id, current_user, db)
+    db.query(CheckInReport).filter(CheckInReport.check_in_id == check_in_id).delete()
+    db.commit()
 
 
 def _serialize_resource(resource: Resource) -> dict:
